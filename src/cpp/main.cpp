@@ -1,4 +1,5 @@
 #include "image_utils.h"
+#include "file_utils.h"
 
 
 int main(int argc, char* argv[]) {
@@ -36,8 +37,11 @@ int main(int argc, char* argv[]) {
         cv::putText(originalImage, label, cv::Point(det.box.x, det.box.y - 5), cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(255, 255, 255), 1);
     }
 
-    cv::imshow("YOLOv8 Detection", originalImage);
-    cv::waitKey(0);  // Wait for a key press
-    return 0;
+    std::string outputPath = getAnnotatedFilename(imagePath, "./output");  // or specify your dir
+    if (!cv::imwrite(outputPath, originalImage)) {
+        std::cerr << "Failed to save annotated image to: " << outputPath << std::endl;
+    } else {
+        std::cout << "Annotated image saved to: " << outputPath << std::endl;
+    }
 }
 

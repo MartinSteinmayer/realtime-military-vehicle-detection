@@ -2,8 +2,10 @@ venv/
 GroundingDINO/
 output/
 weights/
+dataset/
 
 __pycache__/
 .vscode/
 
 build/
+yolov8_detector

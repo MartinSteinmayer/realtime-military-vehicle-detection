@@ -41,9 +41,9 @@ cv::Mat prepareYOLOInput(const cv::Mat& src);
 
 
 /*
-Takes in image path and returns processed, YOLO-conform cv::Mat
+Takes in image path and returns processed, YOLO-conform cv::Mat. Writes the size of the original image in the readSize object.
 */
-cv::Mat processImage(const std::string& imagePath);
+cv::Mat processImage(const std::string& imagePath, cv::Size& readSize);
 
 
 /*

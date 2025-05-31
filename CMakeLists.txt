@@ -11,6 +11,7 @@ include_directories(${OpenCV_INCLUDE_DIRS} src/cpp)
 add_executable(yolov8_detector
     src/cpp/main.cpp
     src/cpp/image_utils.cpp
+    src/cpp/file_utils.cpp
 )
 
 target_link_libraries(yolov8_detector ${OpenCV_LIBS})
