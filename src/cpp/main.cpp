@@ -36,8 +36,7 @@ void display_image(cv::Mat image, const std::vector<float> &output, const std::v
     cv::waitKey(0);
 }
 
-int main() {
-    bool use_cuda = false;
+int main(int argc, char* argv[]) {
     int image_size = 320;
     std::string model_path = "model.onnx";
     std::string image_path = "image.jpg";
@@ -54,12 +53,37 @@ int main() {
     /*    "Light utility vehicle",    */
     /*};*/
 
+    for (int i = 1; i < argc; ++i) {
+        std::string arg = argv[i];
+        if (arg == "-m" && i + 1 < argc) {
+            model_path = argv[++i];
+        }
+        else if (arg == "-i" && i + 1 < argc) {
+            image_path = argv[++i];
+        }
+        else if ((arg == "-h") || (arg == "--help")) {
+            std::cout << "Usage: " << argv[0] << " -m <model.onnx> -i <image.jpg> \n";
+            return 0;
+        }
+    }
+
+    if (model_path.empty()) {
+        std::cerr << "[ERROR] No model specified. Use -m <model.onnx>.\n";
+        return -1;
+    }
+    if (image_path.empty()) {
+        std::cerr << "[ERROR] No image specified. Use -i <image.jpg>.\n";
+        return -1;
+    }
+
+    std::cout << "[INFO] Using model: " << model_path << "\n";
+    std::cout << "[INFO] Using image: " << image_path << "\n";
+
 
     std::tuple<std::vector<float>, std::vector<long>, cv::Mat> result = read_image(image_path, image_size);
 
     Ort::Env env(ORT_LOGGING_LEVEL_WARNING, "Yolov8n");
     Ort::SessionOptions options;
-    if (use_cuda) Ort::ThrowOnError(OrtSessionOptionsAppendExecutionProvider_CUDA(options, 0));
     Ort::Session session(env, model_path.c_str(), options);
 
 
