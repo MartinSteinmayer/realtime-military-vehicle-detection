@@ -26,23 +26,6 @@ def run_dino(dino, image, text_prompt='placeholder', box_threshold=0.4, text_thr
     return boxes, logits, phrases
 
 
-def convert_to_yolo_format(boxes, image_width, image_height):
-    """Convert boxes from [x1, y1, x2, y2] to YOLO [x_center, y_center, width, height] format"""
-    yolo_boxes = []
-    for box in boxes.tolist():
-        x1, y1, x2, y2 = box
-    
-        # Normalize to 0-1 range
-        x_center = ((x1 + x2) / 2) / image_width
-        y_center = ((y1 + y2) / 2) / image_height
-        width = (x2 - x1) / image_width
-        height = (y2 - y1) / image_height
-        
-        yolo_boxes.append([x_center, y_center, width, height])
-        
-    return yolo_boxes
-
-
 def process_single_image(dino, image_path, output_dirs, class_id, text_prompt, box_threshold=0.4, text_threshold=0.1):
     """Process a single image with DINO"""
     images_dir, labels_dir, annotated_dir = output_dirs
@@ -85,7 +68,7 @@ def process_single_image(dino, image_path, output_dirs, class_id, text_prompt, b
         return (image_path, False)
 
 
-def process_folder_sequential(dino, folder_path, class_id, box_threshold=0.4, text_threshold=0.1, output_dir='output', num_workers=20):
+def process_folder_parallel(dino, num_workers, folder_path, class_id, box_threshold=0.4, text_threshold=0.1, output_dir='output'):
     """Process a folder of images with limited parallelism"""
     images = [os.path.join(folder_path, f) for f in os.listdir(folder_path) if f.endswith(('.jpg', '.jpeg', '.png'))]
     
@@ -131,15 +114,14 @@ def process_folder_sequential(dino, folder_path, class_id, box_threshold=0.4, te
     print(f"Finished processing {class_name}")
 
 
-def process_dataset():
+def process_dataset(config: dict):
     """Process the entire dataset sequentially (one folder at a time)"""
 
-    # Load dataset path, output path, and the number of workers from the config
-    config = load_config("config.json")
-
     dataset_path = config["dataset"]
-    output_path = config["output_dir"]  
-    num_workers = config["num_workers"]
+    output_path = config["output_dir"]
+
+    specs = get_available_specs()
+    num_workers = min(specs["cpu_cores"], config["num_workers"])
 
     # Load the model once
     model = load_model(config["model_config_path"], config["model_checkpoint_path"])
@@ -165,18 +147,19 @@ def process_dataset():
             
             output_dir = os.path.join(output_path, split, folder)
             # Process folder
-            process_folder_sequential(model, folder_path,
+            process_folder_parallel(dino=model, num_workers=num_workers,
+                                    folder_path=folder_path,
                                     class_id=class_id,
                                     box_threshold=0.4, 
                                     text_threshold=0.25, 
                                     output_dir=output_dir, 
-                                    num_workers=num_workers)
+                                    )
             
             if folder not in class_names:
                 class_names.append(folder)
     
     # Create YAML config for YOLO training
-    config = {
+    yaml_config = {
         'names': class_names,
         'nc': len(class_names),
         'train': 'train/images',
@@ -186,13 +169,7 @@ def process_dataset():
     
     output_yaml_path = os.path.join(output_path, "data.yaml")
     with open(output_yaml_path, 'w') as f:
-        yaml.dump(config, f)
+        yaml.dump(yaml_config, f)
     
     print(f"\nDataset processed. Config saved to {output_yaml_path}")
     print(f"Found classes: {class_names}")
-
-
-if __name__ == "__main__":
-    # Process with limited parallelism to avoid resource exhaustion
-    # Adjust num_workers in the config file based on your system's capabilities
-    process_dataset()
