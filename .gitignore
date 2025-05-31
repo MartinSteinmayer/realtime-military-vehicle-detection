@@ -1,2 +1,6 @@
-venv
-GroundingDINO
+venv/
+GroundingDINO/
+output/
+weights/
+
+__pycache__/

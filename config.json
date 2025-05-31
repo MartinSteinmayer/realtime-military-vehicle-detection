@@ -1,0 +1,18 @@
+{
+  "run_dino": true,
+  "groundingdino": {
+    "dataset": "dataset",
+    "output_dir": "output",
+    "model_config_path": "GroundingDINO/groundingdino/config/GroundingDINO_SwinT_OGC.py",
+    "model_checkpoint_path": "weights/groundingdino_swint_ogc.pth",
+    "num_workers": 32
+  },
+  "yolo_training": {
+    "model": "yolov8n.pt",
+    "epochs": 50,
+    "imgsz": 640,
+    "batch": 16,
+    "device": 0,
+    "data_yaml": "output/data.yaml"
+  }
+}
