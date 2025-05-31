@@ -96,7 +96,7 @@ def process_folder_sequential(dino, folder_path, box_threshold=0.4, text_thresho
     
     # Get class name from folder
     class_name = os.path.basename(folder_path)
-    text_prompt = f"{class_name}, military vehicle, ground combat vehicle"
+    text_prompt = f"{class_name}"
     
     output_dirs = (images_dir, labels_dir, annotated_dir)
     
