@@ -4,3 +4,4 @@ output/
 weights/
 
 __pycache__/
+.vscode/
