@@ -21,7 +21,8 @@ def run_dino(dino, image, text_prompt='placeholder', box_threshold=0.4, text_thr
         image = image, 
         caption = text_prompt, 
         box_threshold = box_threshold, 
-        text_threshold = text_threshold
+        text_threshold = text_threshold,
+        device= 'cuda' if torch.cuda.is_available() else 'cpu'
     )
     return boxes, logits, phrases
 
