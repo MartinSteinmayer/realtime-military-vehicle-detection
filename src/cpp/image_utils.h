@@ -1,5 +1,6 @@
 #include <iostream>
 #include <string>
+#include <fstream>
 #include <opencv2/opencv.hpp>
 
 const int INPUT_WIDTH = 320;
@@ -13,6 +14,13 @@ struct Detection {
     float confidence;
     cv::Rect box;
 };
+
+
+/*
+Reads in a vector of class names from a file
+*/
+std::vector<std::string> loadClassNames(const std::string& path);
+
 
 /*
 Downsizes an Image to the specfied targetSize using optimal interpolation for downscaling.
@@ -42,3 +50,9 @@ cv::Mat processImage(const std::string& imagePath);
 Performs class detection and annotates the given image
 */
 void detect(const std::string &imagePath, cv::dnn::Net &net, std::vector<Detection> &output, const std::vector<std::string> &className);
+
+
+/*
+
+*/
+void drawDetections(cv::Mat& image, const std::vector<Detection>& detections, const std::vector<std::string>& classNames);

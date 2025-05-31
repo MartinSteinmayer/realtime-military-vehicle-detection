@@ -1,5 +1,17 @@
 #include "image_utils.h"
 
+
+std::vector<std::string> loadClassNames(const std::string& path) {
+    std::vector<std::string> classNames;
+    std::ifstream file(path);
+    std::string line;
+    while (std::getline(file, line)) {
+        classNames.push_back(line);
+    }
+    return classNames;
+}
+
+
 bool downscaleImage(const cv::Mat& input, cv::Mat& output, const cv::Size& targetSize){
     if (input.empty()) {
         std::cerr << "Error: Input image size is 0." << std::endl;
@@ -150,4 +162,18 @@ void detect(const std::string &imagePath, cv::dnn::Net &net, std::vector<Detecti
     // cv::imshow("Detections", image);
     // cv::waitKey(0);
     // cv::imwrite("output.jpg", image);
+}
+
+
+void drawDetections(cv::Mat& image, const std::vector<Detection>& detections, const std::vector<std::string>& classNames) {
+    for (const auto& det : detections) {
+        cv::rectangle(image, det.box, cv::Scalar(0, 255, 0), 2);
+        std::string label = classNames[det.classID] + " " + cv::format(" %.2f", det.confidence);
+        int baseline = 0;
+        cv::Size labelSize = cv::getTextSize(label, cv::FONT_HERSHEY_SIMPLEX, 0.5, 1, &baseline);
+        cv::rectangle(image, cv::Rect(det.box.x, det.box.y - labelSize.height - 5, labelSize.width, labelSize.height + 5),
+                      cv::Scalar(0, 255, 0), cv::FILLED);
+        cv::putText(image, label, cv::Point(det.box.x, det.box.y - 5),
+                    cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(0, 0, 0), 1);
+    }
 }
