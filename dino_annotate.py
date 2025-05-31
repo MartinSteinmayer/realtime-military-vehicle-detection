@@ -21,7 +21,8 @@ def run_dino(dino, image, text_prompt='placeholder', box_threshold=0.4, text_thr
         image = image, 
         caption = text_prompt, 
         box_threshold = box_threshold, 
-        text_threshold = text_threshold
+        text_threshold = text_threshold,
+        device= 'cuda' if torch.cuda.is_available() else 'cpu'
     )
     return boxes, logits, phrases
 
@@ -124,7 +125,7 @@ def process_dataset(config: dict):
     num_workers = min(specs["cpu_cores"], config["num_workers"])
 
     # Load the model once
-    model = load_model(config["model_config_path"], config["model_checkpoint_path"])
+    model = load_model(config["model_config_path"], config["model_checkpoint_path"], device='cuda' if torch.cuda.is_available() else 'cpu')
     
     # Check directory structure
     if not os.path.isdir(dataset_path):

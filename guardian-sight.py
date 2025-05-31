@@ -31,9 +31,11 @@ def main():
         dino_cfg = config["groundingdino"]
         process_dataset(dino_cfg)
     
-    yolo_cfg = config["yolo_training"]
-    train_yolo(yolo_cfg)
+    #yolo_cfg = config["yolo_training"]
+    #train_yolo(yolo_cfg)
 
 
 # Run the program
-main()
+if __name__ == "__main__":
+    print("Starting the Guardian Sight program...")
+    main()
