@@ -31,7 +31,7 @@ std::tuple<std::vector<float>, std::vector<long>, cv::Mat> read_image(const std:
         throw std::runtime_error("Image must have 3 channels (RGB)");
     }
 
-    cv::resize(image, image, cv::Size(image_size, image_size));
+    downscaleImage(image, image, cv::Size(image_size, image_size));
 
     std::vector<long> input_shape = {1, 3, image_size, image_size};
 
