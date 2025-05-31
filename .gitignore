@@ -2,6 +2,3 @@ venv/
 GroundingDINO/
 output/
 weights/
-
-yolov8n.onnx
-yolov8n.pt
