@@ -26,43 +26,42 @@ def run_dino(dino, image, text_prompt='placeholder', box_threshold=0.4, text_thr
     return boxes, logits, phrases
 
 
-def process_single_image(dino, image_path, output_dirs, class_id, text_prompt, box_threshold=0.4, text_threshold=0.1):
-    """Process a single image with DINO"""
+def process_single_image(dino, image_path, output_dirs, class_id, text_prompt, box_threshold=0.4, text_threshold=0.1, use_cache=True):
     images_dir, labels_dir, annotated_dir = output_dirs
-    
+
+    # Derive base filename
+    base_name = os.path.splitext(os.path.basename(image_path))[0]
+    label_filename = f"{base_name}.txt"
+    label_path = os.path.join(labels_dir, label_filename)
+
+    # Skip if label file exists and is non-empty
+    if use_cache and os.path.exists(label_path) and os.path.getsize(label_path) > 0:
+        return (image_path, True)
+
     try:
-        # Load and process image
         image_source, image = load_image(image_path)
         boxes, logits, phrases = run_dino(dino, image, text_prompt, box_threshold, text_threshold)
-        
+
         if len(boxes) == 0:
             print(f"No detections in {image_path}, skipping...")
             return (image_path, False)
-            
-        # Create annotated image
+
         annotated_frame = annotate(image_source=image_source, boxes=boxes, logits=logits, phrases=phrases)
-        
-        # Get image dimensions for YOLO conversion
         h, w = image_source.shape[:2]
         
-        # Create filenames - use original filename without extension as base
-        base_name = os.path.splitext(os.path.basename(image_path))[0]
         image_filename = f"{base_name}.jpg"
-        label_filename = f"{base_name}.txt"
-        
-        # Save image, annotated image, and label
+
+        # Save outputs
         cv2.imwrite(os.path.join(images_dir, image_filename), image_source)
         cv2.imwrite(os.path.join(annotated_dir, image_filename), annotated_frame)
-        
-        # Convert boxes to YOLO format and save labels
+
         yolo_boxes = convert_to_yolo_format(boxes, w, h)
-        with open(os.path.join(labels_dir, label_filename), 'w') as f:
+        with open(label_path, 'w') as f:
             for box in yolo_boxes:
-                # Format: class_id x_center y_center width height
                 f.write(f"{class_id} {' '.join([str(coord) for coord in box])}\n")
-        
+
         return (image_path, True)
-                
+
     except Exception as e:
         print(f"Error processing {image_path}: {str(e)}")
         return (image_path, False)
@@ -97,7 +96,8 @@ def process_folder_parallel(dino, num_workers, folder_path, class_id, box_thresh
                              class_id=class_id,
                              text_prompt=text_prompt, 
                              box_threshold=box_threshold, 
-                             text_threshold=text_threshold)
+                             text_threshold=text_threshold,
+                             use_cache=True)    # We want to skip pre-annotated images so we set use_cache as True and check if the label exists
         
         # Process images with progress bar
         with tqdm(total=len(images), desc=f"Processing {class_name}") as pbar:

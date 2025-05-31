@@ -4,7 +4,7 @@
     "dataset": "dataset",
     "output_dir": "output",
     "model_config_path": "GroundingDINO/groundingdino/config/GroundingDINO_SwinT_OGC.py",
-    "model_checkpoint_path": "weights/groundingdino_swint_ogc.pth",
+    "model_checkpoint_path": "GroundingDINO/weights/groundingdino_swint_ogc.pth",
     "num_workers": 8
   },
   "yolo_training": {
