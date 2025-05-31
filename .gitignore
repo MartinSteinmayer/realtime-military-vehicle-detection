@@ -5,3 +5,5 @@ weights/
 
 __pycache__/
 .vscode/
+
+build/

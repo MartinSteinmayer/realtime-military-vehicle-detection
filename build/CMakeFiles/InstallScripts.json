@@ -1,0 +1,7 @@
+{
+	"InstallScripts" : 
+	[
+		"/home/tomas/Projects/realtime-military-vehicle-detection/build/cmake_install.cmake"
+	],
+	"Parallel" : false
+}
