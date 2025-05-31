@@ -1,6 +1,7 @@
 import os
 import json
 
+# Fetches the classes in a dataset folder with the expected structure
 def fetch_classes(dataset_path: str) -> list[str] | None:
     subdirectories = os.listdir(dataset_path)
     for subdir in subdirectories:
@@ -29,7 +30,7 @@ def load_config(config_path: str = "config.json") -> dict:
     try:
         with open(config_path, 'r', encoding="utf-8") as f:
             config = json.load(f)
-            for item in ["dataset", "output_dir"]:
+            for item in ["dataset", "output_dir", "model_config_path", "model_checkpoint_path", "num_workers"]:
                 if item not in config:
                     print(f"Missing config parameter: {item}")
                     return None
