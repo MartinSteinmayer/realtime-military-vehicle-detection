@@ -1,2 +1,4 @@
-venv
-GroundingDINO
+venv/
+GroundingDINO/
+output/
+weights/
