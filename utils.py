@@ -7,7 +7,7 @@ def fetch_classes(dataset_path: str) -> list[str] | None:
     """Fetches the classes in a dataset folder with the expected structure"""
     subdirectories = os.listdir(dataset_path)
     for subdir in subdirectories:
-        if subdir.lower() not in ["train", "test", "split"]:
+        if subdir.lower() not in ["train", "test", "validation"]:
             print(f"Invalid subdirectory in dataset: '{subdir}'. The dataset must contain the following directories: train, test, split")
             return None
         

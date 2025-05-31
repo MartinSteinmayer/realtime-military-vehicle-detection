@@ -131,6 +131,8 @@ def process_dataset(config: dict):
         raise ValueError(f"Dataset path {dataset_path} does not exist or is not a directory") 
     
     class_names = fetch_classes(dataset_path)
+    if not class_names:
+        raise ValueError(f"Could not fetch class names for the given dataset: {dataset_path}")
     
     # Process train, val, test folders if they exist
     for split in ['train', 'val', 'test']:
