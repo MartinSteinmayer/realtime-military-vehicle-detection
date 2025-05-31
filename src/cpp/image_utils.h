@@ -7,4 +7,12 @@ Downsizes an Image to the specfied targetSize using optimal interpolation for do
 */
 bool downscaleImage(const cv::Mat& input, cv::Mat& output, const cv::Size& targetSize);
 
-std::tuple<std::vector<float>, std::vector<long>, cv::Mat> read_image(const std::string& image_path, int image_size);
+/*
+Reads in an image from a path and fills in the given output cv::Mat.
+*/
+bool readImage(const std::string& imagePath, const cv::Size& targetSize, cv::Mat& outputImage);
+
+/*
+Reads in an image path, downscales the image and creates an appropriate YOLO input
+*/
+bool prepareYOLOInput(const std::string& imagePath, const cv::Size& targetSize, std::vector<float>& outputTensor, cv::Mat& downscaledImage);

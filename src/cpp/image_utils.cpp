@@ -22,30 +22,42 @@ bool downscaleImage(const cv::Mat& input, cv::Mat& output, const cv::Size& targe
     }
 }
 
-std::tuple<std::vector<float>, std::vector<long>, cv::Mat> read_image(const std::string& image_path, int image_size) {
-    auto image = cv::imread(image_path);
+
+bool readImage(const std::string& imagePath, const cv::Size& targetSize, cv::Mat& outputImage) {
+    auto image = cv::imread(imagePath);
     if (image.empty()) {
-        throw std::runtime_error("Could not read the image: " + image_path);
+        std::cerr << "Failed to read image: " << imagePath;
+        return false;
     }
     if (image.channels() != 3) {
-        throw std::runtime_error("Image must have 3 channels (RGB)");
+        std::cerr << "Image must have three channels (RBG/BGR)." << std::endl;
+        return false;
+    }
+    return true;
+}
+
+
+bool prepareYOLOInput(const std::string& imagePath, const cv::Size& targetSize, std::vector<float>& outputTensor, cv::Mat& downscaledImage) {
+    cv::Mat originalImage;
+    if (!readImage(imagePath, targetSize, originalImage)) {
+        return false;
+    }
+    if (!downscaleImage(originalImage, downscaledImage, targetSize)) {
+        std::cerr << "Failed to downscale Image." << std::endl;
+        return false;
     }
 
-    cv::resize(image, image, cv::Size(image_size, image_size));
+    cv::Mat blob = cv::dnn::blobFromImage(
+        downscaledImage,
+        1.0f / 255.0f,  // scale factor (normalize 0-255 to 0-1)
+        {},             // size: no resizing here, already done
+        {},             // mean subtraction: none
+        true            // swapRB: BGR to RGB conversion
+    );
 
-    std::vector<long> input_shape = {1, 3, image_size, image_size};
+    // Flatten blob to std::vector<float>
+    outputTensor.assign((float*)blob.datastart, (float*)blob.dataend);
 
-    // 4) Turn the cv::Mat into a “blob” in NCHW float format, normalized to [0,1]
-    cv::Mat nchw = cv::dnn::blobFromImage(
-        image,     // the resized BGR image
-        1.0f,      // no extra scaling (we’ll divide by 255 ourselves)
-        {},        // (we’ve already resized, so no need for a target size here)
-        {},        // no mean subtraction
-        true       // convert BGR→RGB (the “true” here swaps channels)
-    ) / 255.f;    // divide every pixel by 255: 0–255 → 0.0–1.0
-    
-    // 5) Flatten that blob’s data into a 1D Array<float>
-    std::vector<float> input_data(nchw.begin<float>(), nchw.end<float>());
+    return true;
 
-    return {input_data, input_shape, image};
 }
