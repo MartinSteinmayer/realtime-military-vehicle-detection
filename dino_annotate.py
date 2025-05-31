@@ -124,7 +124,7 @@ def process_dataset(config: dict):
     num_workers = min(specs["cpu_cores"], config["num_workers"])
 
     # Load the model once
-    model = load_model(config["model_config_path"], config["model_checkpoint_path"])
+    model = load_model(config["model_config_path"], config["model_checkpoint_path"], device="cuda" if specs["cuda_available"] else "cpu")
     
     # Check directory structure
     if not os.path.isdir(dataset_path):
