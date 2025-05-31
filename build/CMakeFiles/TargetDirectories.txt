@@ -1,3 +1,0 @@
-/home/tomas/Projects/realtime-military-vehicle-detection/build/CMakeFiles/yolov8_detector.dir
-/home/tomas/Projects/realtime-military-vehicle-detection/build/CMakeFiles/edit_cache.dir
-/home/tomas/Projects/realtime-military-vehicle-detection/build/CMakeFiles/rebuild_cache.dir
