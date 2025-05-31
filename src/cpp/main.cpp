@@ -148,7 +148,7 @@ int main(int argc, char **argv)
     std::vector<std::string> class_list = load_class_list();
 
     // Load input image
-    std::string image_path = cv::samples::findFile("C:/Users/sirom/Desktop/cpp-ultralytics/test2.jpg");
+    std::string image_path = cv::samples::findFile("../../person.jpg");
     cv::Mat frame = cv::imread(image_path, cv::IMREAD_COLOR);
 
     // Load the  modeL
@@ -161,7 +161,7 @@ int main(int argc, char **argv)
     detect(frame, net, output, class_list);
 
     // Save the result to a file
-    cv::imwrite("C:/Users/sirom/Desktop/cpp-ultralytics/result.jpg", frame);
+    cv::imwrite("./result.jpg", frame);
 
     while (true)
     {       
