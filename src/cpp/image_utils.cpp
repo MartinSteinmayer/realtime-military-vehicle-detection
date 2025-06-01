@@ -91,8 +91,10 @@ void detect(const std::string &imagePath, cv::dnn::Net &net, std::vector<Detecti
     }
 
     const cv::Mat& outputMat = outputs[0];
-    const int numDetections = outputMat.size[2];
-    const int numAttributes = outputMat.size[1];
+    
+    // YOLOv8 output format: [1, 84, 8400] where 84 = 4 (bbox) + 80 (classes)
+    int numDetections = outputMat.size[2];  // 8400
+    int numAttributes = outputMat.size[1];  // 84
     
     float* data = (float*)outputMat.data;
 
@@ -105,34 +107,29 @@ void detect(const std::string &imagePath, cv::dnn::Net &net, std::vector<Detecti
     float y_factor = static_cast<float>(originalSize.height) / readSize.height;
     
     for (int i = 0; i < numDetections; ++i) {
+        // YOLOv8 format: [cx, cy, w, h, class0_conf, class1_conf, ..., class79_conf]
         float center_x = data[0 * numDetections + i];
         float center_y = data[1 * numDetections + i];
         float width = data[2 * numDetections + i];
         float height = data[3 * numDetections + i];
-        float obj_conf = data[4 * numDetections + i];
         
-        // Use objectness confidence directly (YOLOv8 approach)
-        if (obj_conf >= CONFIDENCE_THRESHOLD) {
-            std::cout << "Detection found: confidence " << obj_conf << std::endl;
-            // Get class scores to find the best class
-            std::vector<float> class_scores;
-            for (int c = 5; c < numAttributes; ++c) {
-                class_scores.push_back(data[c * numDetections + i]);
+        // Find the maximum class confidence (no separate objectness score in YOLOv8)
+        float max_confidence = 0.0f;
+        int best_class_id = 0;
+        
+        for (int c = 0; c < 80; ++c) {  // 80 COCO classes
+            float class_conf = data[(4 + c) * numDetections + i];
+            if (class_conf > max_confidence) {
+                max_confidence = class_conf;
+                best_class_id = c;
             }
+        }
+        
+        // Only process detections above threshold
+        if (max_confidence >= CONFIDENCE_THRESHOLD) {
+            std::cout << "Detection found: class=" << classNames[best_class_id] 
+                      << " (ID=" << best_class_id << ") confidence=" << max_confidence << std::endl;
             
-            // Find the class with maximum score
-            auto max_iter = std::max_element(class_scores.begin(), class_scores.end());
-            int class_id = std::distance(class_scores.begin(), max_iter);
-            
-            // Bounds check for class_id
-            if (class_id >= classNames.size()) {
-                std::cout << "Warning: class_id " << class_id << " >= classNames.size() " << classNames.size() << std::endl;
-                continue; // Skip this detection
-            }
-            
-            // std::cout << "Detection: confidence=" << obj_conf << ", class_id=" << class_id << ", class=" << classNames[class_id] << std::endl;
-
-            // YOLO coordinates are already in pixel space, not normalized
             // Convert from center format to top-left corner format
             float x = center_x - width / 2.0f;
             float y = center_y - height / 2.0f;
@@ -157,8 +154,8 @@ void detect(const std::string &imagePath, cv::dnn::Net &net, std::vector<Detecti
 
             // Only add valid boxes
             if (box_width > 0 && box_height > 0) {
-                class_ids.push_back(class_id);
-                confidences.push_back(obj_conf);  // Use objectness confidence directly
+                class_ids.push_back(best_class_id);
+                confidences.push_back(max_confidence);
                 boxes.emplace_back(left, top, box_width, box_height);
             }
         }
@@ -241,7 +238,6 @@ void drawDetections(cv::Mat& image, const std::vector<Detection>& detections, co
         cv::putText(image, label, cv::Point(label_x, label_y), 
                    cv::FONT_HERSHEY_SIMPLEX, fontScale, cv::Scalar(0, 0, 0), thickness, cv::LINE_AA);
     }
-    // std::cout << "\nFinished drawing all detections" << std::endl;
 }
 
 

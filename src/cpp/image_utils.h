@@ -8,7 +8,7 @@
 const int INPUT_WIDTH = 320;
 const int INPUT_HEIGHT = 320;
 const float NMS_THRESHOLD = 0.5;
-const float CONFIDENCE_THRESHOLD = 0.9;
+const float CONFIDENCE_THRESHOLD = 0.6;
 
 struct Detection {
     int classID;
