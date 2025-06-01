@@ -131,6 +131,11 @@ int main(int argc, char* argv[]) {
     std::string modelPath = "yolov8n.onnx";
     cv::dnn::Net net = cv::dnn::readNetFromONNX(modelPath);
 
+    if (net.empty()) {
+        std::cerr << "Couldn't load net." << std::endl;
+        return -1;
+    }
+
     // Load class names
     std::string classFilePath = "class_names.txt";
     std::vector<std::string> classNames = loadClassNames(classFilePath);
