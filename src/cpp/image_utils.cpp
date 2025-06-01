@@ -1,7 +1,7 @@
 #include "image_utils.h"
 
 
-bool downscaleImage(const cv::Mat& input, cv::Mat& output, const cv::Size& targetSize){
+bool downscaleImage(const cv::Mat& input, cv::Mat& output, const cv::Size& targetSize) {
     if (input.empty()) {
         std::cerr << "Error: Input image size is 0." << std::endl;
         return false;
@@ -16,8 +16,7 @@ bool downscaleImage(const cv::Mat& input, cv::Mat& output, const cv::Size& targe
         // cv::INTER_AREA is the recommended interpolation method for downscaling images
         cv::resize(input, output, targetSize, 0, 0, cv::INTER_AREA);
         return true;
-    }
-    catch (const cv::Exception &e) {
+    } catch (const cv::Exception &e) {
         std::cerr << "Error resizing image: " << e.what() << std::endl;
         return false;
     }
@@ -31,49 +30,54 @@ bool readImage(const std::string& imagePath, cv::Mat& outputImage) {
         return false;
     }
     if (outputImage.channels() != 3) {
-        std::cerr << "Image must have three channels (RBG/BGR)." << std::endl;
+        std::cerr << "Image must have three channels (RGB/BGR)." << std::endl;
         return false;
     }
     return true;
 }
 
 
-cv::Mat prepareYOLOInput(const cv::Mat& src) {
-    int col = src.cols;
-    int row = src.rows;
-    int maxDimension = std::max(col, row);
-    cv::Mat result = cv::Mat::zeros(maxDimension, maxDimension, CV_8UC3);
-    src.copyTo(result(cv::Rect(0, 0, col, row)));
-    return result;
-}
-
-
-cv::Mat processImage(const std::string& imagePath, cv::Size& readSize) {
+cv::Mat processImage(const std::string& imagePath, cv::Size& originalSize, cv::Size& readSize, cv::Point& offset) {
     cv::Mat inputImage;
     cv::Mat outputImage;
+
     if (!readImage(imagePath, inputImage)) {
         std::cerr << "No image read." << std::endl;
         return outputImage;
     }
+
+    // Store the original image size BEFORE any processing
+    originalSize = inputImage.size();
+
     if (!downscaleImage(inputImage, outputImage, cv::Size(INPUT_WIDTH, INPUT_HEIGHT))) {
         std::cerr << "Image couldn't be downscaled." << std::endl;
         return outputImage;
     }
-    readSize = outputImage.size();  // set original size before padding
-    return prepareYOLOInput(outputImage);
+
+    readSize = outputImage.size();
+
+    int col = outputImage.cols;
+    int row = outputImage.rows;
+    int maxDimension = std::max(col, row);
+
+    offset = cv::Point((maxDimension - col) / 2, (maxDimension - row) / 2);
+
+    cv::Mat result = cv::Mat::zeros(maxDimension, maxDimension, CV_8UC3);
+    outputImage.copyTo(result(cv::Rect(offset.x, offset.y, col, row)));
+    return result;
 }
 
 
 void detect(const std::string &imagePath, cv::dnn::Net &net, std::vector<Detection> &output, const std::vector<std::string> &classNames) {
-    
     cv::Size originalSize;
-    cv::Mat image = processImage(imagePath, originalSize);
+    cv::Size readSize;
+    cv::Point offset;
+    cv::Mat image = processImage(imagePath, originalSize, readSize, offset);
     if (image.empty()) {
         std::cerr << "Couldn't process image: " << imagePath << std::endl;
         return;
     }
 
-    // Create blob from image and feed to network
     cv::Mat blob;
     cv::dnn::blobFromImage(image, blob, 1.0 / 255.0, cv::Size(INPUT_WIDTH, INPUT_HEIGHT), cv::Scalar(), true, false);
     net.setInput(blob);
@@ -87,52 +91,81 @@ void detect(const std::string &imagePath, cv::dnn::Net &net, std::vector<Detecti
     }
 
     const cv::Mat& outputMat = outputs[0];
-    const int numDetections = outputMat.size[1];
-    const int numAttributes = outputMat.size[2]; 
-
+    const int numDetections = outputMat.size[2];
+    const int numAttributes = outputMat.size[1];
+    
     float* data = (float*)outputMat.data;
 
     std::vector<int> class_ids;
     std::vector<float> confidences;
     std::vector<cv::Rect> boxes;
 
-    float x_factor = static_cast<float>(originalSize.width) / INPUT_WIDTH;
-    float y_factor = static_cast<float>(originalSize.height) / INPUT_HEIGHT;
-
+    // Calculate scaling factors from downscaled size to original size
+    float x_factor = static_cast<float>(originalSize.width) / readSize.width;
+    float y_factor = static_cast<float>(originalSize.height) / readSize.height;
+    
     for (int i = 0; i < numDetections; ++i) {
-        float obj_conf = data[4];
-
+        float center_x = data[0 * numDetections + i];
+        float center_y = data[1 * numDetections + i];
+        float width = data[2 * numDetections + i];
+        float height = data[3 * numDetections + i];
+        float obj_conf = data[4 * numDetections + i];
+        
+        // Use objectness confidence directly (YOLOv8 approach)
         if (obj_conf >= CONFIDENCE_THRESHOLD) {
-            cv::Mat scores(1, classNames.size(), CV_32FC1, data + 5);
-            cv::Point classIdPoint;
-            double max_class_score;
-            cv::minMaxLoc(scores, 0, &max_class_score, 0, &classIdPoint);
+            // Get class scores to find the best class
+            std::vector<float> class_scores;
+            for (int c = 5; c < numAttributes; ++c) {
+                class_scores.push_back(data[c * numDetections + i]);
+            }
+            
+            // Find the class with maximum score
+            auto max_iter = std::max_element(class_scores.begin(), class_scores.end());
+            int class_id = std::distance(class_scores.begin(), max_iter);
+            
+            // Bounds check for class_id
+            if (class_id >= classNames.size()) {
+                std::cout << "Warning: class_id " << class_id << " >= classNames.size() " << classNames.size() << std::endl;
+                continue; // Skip this detection
+            }
+            
+            // std::cout << "Detection: confidence=" << obj_conf << ", class_id=" << class_id << ", class=" << classNames[class_id] << std::endl;
 
-            float confidence = obj_conf * static_cast<float>(max_class_score);
-            if (confidence > SCORE_THRESHOLD) {
-                int class_id = classIdPoint.x;
+            // YOLO coordinates are already in pixel space, not normalized
+            // Convert from center format to top-left corner format
+            float x = center_x - width / 2.0f;
+            float y = center_y - height / 2.0f;
 
-                float x = data[0];
-                float y = data[1];
-                float w = data[2];
-                float h = data[3];
+            // Remove padding offset to get coordinates on downscaled rectangular image
+            float x_unpadded = x - offset.x;
+            float y_unpadded = y - offset.y;
+            
+            // Scale to original image size
+            int left = static_cast<int>(x_unpadded * x_factor);
+            int top = static_cast<int>(y_unpadded * y_factor);
+            int box_width = static_cast<int>(width * x_factor);
+            int box_height = static_cast<int>(height * y_factor);
 
-                int left = static_cast<int>((x - 0.5f * w) * x_factor);
-                int top = static_cast<int>((y - 0.5f * h) * y_factor);
-                int width = static_cast<int>(w * x_factor);
-                int height = static_cast<int>(h * y_factor);
+            // Clamp to image bounds
+            left = std::max(0, left);
+            top = std::max(0, top);
+            if (left + box_width > originalSize.width) 
+                box_width = originalSize.width - left;
+            if (top + box_height > originalSize.height) 
+                box_height = originalSize.height - top;
 
+            // Only add valid boxes
+            if (box_width > 0 && box_height > 0) {
                 class_ids.push_back(class_id);
-                confidences.push_back(confidence);
-                boxes.emplace_back(left, top, width, height);
+                confidences.push_back(obj_conf);  // Use objectness confidence directly
+                boxes.emplace_back(left, top, box_width, box_height);
             }
         }
-
-        data += numAttributes;
     }
 
+    // Apply Non-Maximum Suppression
     std::vector<int> nms_result;
-    cv::dnn::NMSBoxes(boxes, confidences, SCORE_THRESHOLD, NMS_THRESHOLD, nms_result);
+    cv::dnn::NMSBoxes(boxes, confidences, CONFIDENCE_THRESHOLD, NMS_THRESHOLD, nms_result);
 
     for (int idx : nms_result) {
         Detection result;
@@ -144,15 +177,68 @@ void detect(const std::string &imagePath, cv::dnn::Net &net, std::vector<Detecti
 }
 
 
+cv::Scalar getClassColor(int classID) {
+    // Generate deterministic colors based on class ID
+    cv::RNG rng(classID * 12345); // Use class ID as seed for consistent colors
+    return cv::Scalar(rng.uniform(100, 255), rng.uniform(100, 255), rng.uniform(100, 255));
+}
+
+
 void drawDetections(cv::Mat& image, const std::vector<Detection>& detections, const std::vector<std::string>& classNames) {
-    for (const auto& det : detections) {
+    
+    for (size_t i = 0; i < detections.size(); ++i) {
+        const auto& det = detections[i];
+        
+        // Draw bounding box
         cv::rectangle(image, det.box, cv::Scalar(0, 255, 0), 2);
-        std::string label = classNames[det.classID] + " " + cv::format(" %.2f", det.confidence);
+        
+        // Bounds check before accessing classNames
+        std::string className;
+        if (det.classID >= 0 && det.classID < classNames.size()) {
+            className = classNames[det.classID];
+        } else {
+            className = "Unknown";
+            std::cout << "Class name: Unknown (classID " << det.classID << " out of bounds)" << std::endl;
+        }
+        
+        std::string label = className + " " + cv::format("%.2f", det.confidence);
+        
+        // Get text size
         int baseline = 0;
-        cv::Size labelSize = cv::getTextSize(label, cv::FONT_HERSHEY_SIMPLEX, 0.5, 1, &baseline);
-        cv::rectangle(image, cv::Rect(det.box.x, det.box.y - labelSize.height - 5, labelSize.width, labelSize.height + 5),
-                      cv::Scalar(0, 255, 0), cv::FILLED);
-        cv::putText(image, label, cv::Point(det.box.x, det.box.y - 5),
-                    cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(0, 0, 0), 1);
+        float fontScale = 0.8;  // Larger font
+        int thickness = 2;      // Thicker text
+        cv::Size labelSize = cv::getTextSize(label, cv::FONT_HERSHEY_SIMPLEX, fontScale, thickness, &baseline);
+        
+        // Calculate label position - ensure it's visible
+        int label_x = det.box.x;
+        int label_y = det.box.y - 10;
+        
+        // If label would be above image, place it inside the box
+        if (label_y - labelSize.height < 0) {
+            label_y = det.box.y + labelSize.height + 20;
+        }
+        
+        // Ensure label doesn't go outside right edge
+        if (label_x + labelSize.width > image.cols) {
+            label_x = image.cols - labelSize.width - 5;
+        }
+        
+        // Draw label background rectangle for high contrast
+        cv::Rect labelBg(label_x - 3, label_y - labelSize.height - 5, 
+                        labelSize.width + 6, labelSize.height + 8);
+        
+        // Ensure background rectangle is within image bounds
+        labelBg.x = std::max(0, labelBg.x);
+        labelBg.y = std::max(0, labelBg.y);
+        if (labelBg.x + labelBg.width > image.cols) labelBg.width = image.cols - labelBg.x;
+        if (labelBg.y + labelBg.height > image.rows) labelBg.height = image.rows - labelBg.y;
+        
+        // Draw bright background
+        cv::rectangle(image, labelBg, cv::Scalar(0, 255, 0), cv::FILLED);
+        
+        // Draw text with black color for maximum contrast
+        cv::putText(image, label, cv::Point(label_x, label_y), 
+                   cv::FONT_HERSHEY_SIMPLEX, fontScale, cv::Scalar(0, 0, 0), thickness, cv::LINE_AA);
     }
+    std::cout << "\nFinished drawing all detections" << std::endl;
 }

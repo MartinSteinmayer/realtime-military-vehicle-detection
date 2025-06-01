@@ -3,6 +3,7 @@ GroundingDINO/
 output/
 weights/
 dataset/
+test_pictures/
 
 __pycache__/
 .vscode/
