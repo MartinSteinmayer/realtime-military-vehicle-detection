@@ -2,3 +2,20 @@ venv/
 GroundingDINO/
 output/
 weights/
+dataset/
+test_pictures/
+
+__pycache__/
+.vscode/
+
+# Build files
+build/
+
+# Executable
+guardian_lense
+
+# Random images & videos
+*.jpg
+*.png
+*.avi
+
