@@ -37,7 +37,7 @@ bool readImage(const std::string& imagePath, cv::Mat& outputImage) {
 }
 
 
-cv::Mat processImage(const std::string& imagePath, cv::Size& originalSize, cv::Size& readSize, cv::Point& offset) {
+cv::Mat preProcessImage(const std::string& imagePath, cv::Size& originalSize, cv::Size& readSize, cv::Point& offset) {
     cv::Mat inputImage;
     cv::Mat outputImage;
 
@@ -72,7 +72,7 @@ void detect(const std::string &imagePath, cv::dnn::Net &net, std::vector<Detecti
     cv::Size originalSize;
     cv::Size readSize;
     cv::Point offset;
-    cv::Mat image = processImage(imagePath, originalSize, readSize, offset);
+    cv::Mat image = preProcessImage(imagePath, originalSize, readSize, offset);
     if (image.empty()) {
         std::cerr << "Couldn't process image: " << imagePath << std::endl;
         return;
@@ -241,4 +241,28 @@ void drawDetections(cv::Mat& image, const std::vector<Detection>& detections, co
                    cv::FONT_HERSHEY_SIMPLEX, fontScale, cv::Scalar(0, 0, 0), thickness, cv::LINE_AA);
     }
     std::cout << "\nFinished drawing all detections" << std::endl;
+}
+
+
+bool runSingleImageProcessing(const std::string& inputPath, const std::string& outputPath, cv::dnn::Net& net, std::vector<std::string>& classNames) {
+    std::vector<Detection> detections;
+    detect(inputPath, net, detections, classNames);
+    
+    // Load original image to display/save results
+    cv::Mat originalImage = cv::imread(inputPath);
+    if (originalImage.empty()) {
+        std::cerr << "Failed to load original image for annotation" << std::endl;
+        return false;
+    }
+    
+    // Use the drawDetections function instead of manual drawing
+    drawDetections(originalImage, detections, classNames);
+    
+    if (!cv::imwrite(outputPath, originalImage)) {
+        std::cerr << "Failed to save annotated image to: " << outputPath << std::endl;
+        return false;
+    } else {
+        std::cout << "Annotated image saved to: " << outputPath << std::endl;
+        return true;
+    }
 }

@@ -8,10 +8,10 @@ find_package(OpenCV REQUIRED)
 
 include_directories(${OpenCV_INCLUDE_DIRS} src/cpp)
 
-add_executable(yolov8_detector
-    src/cpp/main.cpp
+add_executable(guardian_lense
+    src/cpp/guardian_lense.cpp
     src/cpp/image_utils.cpp
     src/cpp/file_utils.cpp
 )
 
-target_link_libraries(yolov8_detector ${OpenCV_LIBS})
+target_link_libraries(guardian_lense ${OpenCV_LIBS})
