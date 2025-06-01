@@ -186,11 +186,6 @@ int main(int argc, char* argv[]) {
         // Run detection for specified image
         runSingleImageProcessing(inputImagePath, outputImagePath, net, classNames);
 
-        if (!cv::imwrite(outputImagePath, rawFrame)) {
-            std::cerr << "ERROR: Failed to write \"" << inputImagePath << "\".\n";
-            break;
-        }
-
         // 4e) Read the processed frame
         cv::Mat procFrame = cv::imread(outputImagePath, cv::IMREAD_COLOR);
         if (procFrame.empty()) {
