@@ -113,6 +113,7 @@ void detect(const std::string &imagePath, cv::dnn::Net &net, std::vector<Detecti
         
         // Use objectness confidence directly (YOLOv8 approach)
         if (obj_conf >= CONFIDENCE_THRESHOLD) {
+            std::cout << "Detection found: confidence " << obj_conf << std::endl;
             // Get class scores to find the best class
             std::vector<float> class_scores;
             for (int c = 5; c < numAttributes; ++c) {
@@ -240,7 +241,7 @@ void drawDetections(cv::Mat& image, const std::vector<Detection>& detections, co
         cv::putText(image, label, cv::Point(label_x, label_y), 
                    cv::FONT_HERSHEY_SIMPLEX, fontScale, cv::Scalar(0, 0, 0), thickness, cv::LINE_AA);
     }
-    std::cout << "\nFinished drawing all detections" << std::endl;
+    // std::cout << "\nFinished drawing all detections" << std::endl;
 }
 
 
@@ -262,7 +263,7 @@ bool runSingleImageProcessing(const std::string& inputPath, const std::string& o
         std::cerr << "Failed to save annotated image to: " << outputPath << std::endl;
         return false;
     } else {
-        std::cout << "Annotated image saved to: " << outputPath << std::endl;
+        // std::cout << "Annotated image saved to: " << outputPath << std::endl;
         return true;
     }
 }
