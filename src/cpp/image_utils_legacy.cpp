@@ -77,18 +77,125 @@ void detect(const std::string &imagePath, cv::dnn::Net &net, std::vector<Detecti
         return;
     }
 
+    // CRITICAL DEBUG: Check network state
+    std::cout << "=== PRE-FORWARD DEBUGGING ===" << std::endl;
+    std::cout << "Network empty: " << (net.empty() ? "YES - THIS IS THE PROBLEM!" : "NO") << std::endl;
+    
+    if (net.empty()) {
+        std::cerr << "FATAL: Network is empty! Model was not loaded properly." << std::endl;
+        return;
+    }
+
+    // Check constants
+    std::cout << "INPUT_WIDTH: " << INPUT_WIDTH << std::endl;
+    std::cout << "INPUT_HEIGHT: " << INPUT_HEIGHT << std::endl;
+    std::cout << "Expected: 320x320" << std::endl;
+    
+    if (INPUT_WIDTH != 320 || INPUT_HEIGHT != 320) {
+        std::cerr << "ERROR: INPUT_WIDTH/HEIGHT constants don't match your model!" << std::endl;
+        std::cerr << "Your model expects 320x320, but constants are " << INPUT_WIDTH << "x" << INPUT_HEIGHT << std::endl;
+        return;
+    }
+
+    // Check input image
+    std::cout << "Preprocessed image size: " << image.cols << "x" << image.rows << std::endl;
+    std::cout << "Preprocessed image type: " << image.type() << " (CV_8UC3=" << CV_8UC3 << ")" << std::endl;
+    
     cv::Mat blob;
     // OpenCV 4.6 compatible blob creation - ensure correct channel order
     cv::dnn::blobFromImage(image, blob, 1.0 / 255.0, cv::Size(INPUT_WIDTH, INPUT_HEIGHT), cv::Scalar(), true, false, CV_32F);
-    net.setInput(blob);
+    
+    // CRITICAL DEBUG: Check blob
+    std::cout << "Blob created successfully" << std::endl;
+    std::cout << "Blob dimensions: " << blob.dims << std::endl;
+    std::cout << "Blob shape: ";
+    for (int i = 0; i < blob.dims; i++) {
+        std::cout << blob.size[i] << " ";
+    }
+    std::cout << std::endl;
+    std::cout << "Expected blob shape: [1, 3, 320, 320]" << std::endl;
+    std::cout << "Blob type: " << blob.type() << " (CV_32F=" << CV_32F << ")" << std::endl;
+    std::cout << "Blob continuous: " << (blob.isContinuous() ? "YES" : "NO") << std::endl;
+    std::cout << "Blob total elements: " << blob.total() << std::endl;
+    std::cout << "Expected total elements: " << (1 * 3 * 320 * 320) << " = " << (1 * 3 * 320 * 320) << std::endl;
 
+    // Check if blob matches expected format
+    if (blob.dims != 4 || 
+        blob.size[0] != 1 || 
+        blob.size[1] != 3 || 
+        blob.size[2] != 320 || 
+        blob.size[3] != 320) {
+        std::cerr << "ERROR: Blob shape doesn't match expected [1,3,320,320]!" << std::endl;
+        return;
+    }
+
+    // CRITICAL DEBUG: Try to set input BEFORE forward
+    try {
+        std::cout << "Attempting setInput..." << std::endl;
+        net.setInput(blob);
+        std::cout << "✓ setInput successful" << std::endl;
+    } catch (const cv::Exception& e) {
+        std::cerr << "ERROR in setInput: " << e.what() << std::endl;
+        return;
+    }
+
+    // CRITICAL DEBUG: Check network layers
+    try {
+        std::vector<cv::String> layerNames = net.getLayerNames();
+        std::cout << "Network has " << layerNames.size() << " layers" << std::endl;
+        
+        std::vector<int> unconnectedLayers = net.getUnconnectedOutLayers();
+        std::cout << "Unconnected output layers: " << unconnectedLayers.size() << std::endl;
+        
+        std::vector<cv::String> outputNames = net.getUnconnectedOutLayersNames();
+        std::cout << "Output layer names: ";
+        for (const auto& name : outputNames) {
+            std::cout << "'" << name << "' ";
+        }
+        std::cout << std::endl;
+        
+    } catch (const cv::Exception& e) {
+        std::cerr << "ERROR getting layer info: " << e.what() << std::endl;
+        return;
+    }
+
+    // Skip the layer shapes check for OpenCV 4.6 compatibility
+    std::cout << "Skipping layer shapes check (not available in OpenCV 4.6)" << std::endl;
+
+    std::cout << "=== ABOUT TO CALL FORWARD ===" << std::endl;
+    
     std::vector<cv::Mat> outputs;
     try {
         net.forward(outputs, net.getUnconnectedOutLayersNames());
+        std::cout << "✓ Forward pass successful!" << std::endl;
     } catch (const cv::Exception& e) {
         std::cerr << "Error during network forward pass: " << e.what() << std::endl;
-        return;
+        
+        // Additional debugging for this specific error
+        std::cout << "\n=== ADDITIONAL ERROR ANALYSIS ===" << std::endl;
+        std::cout << "This error usually means:" << std::endl;
+        std::cout << "1. Network backend incompatibility" << std::endl;
+        std::cout << "2. ONNX model version too new for OpenCV" << std::endl;
+        std::cout << "3. Model corruption" << std::endl;
+        
+        // Try setting backend explicitly
+        std::cout << "Trying to set backend explicitly..." << std::endl;
+        try {
+            net.setPreferableBackend(cv::dnn::DNN_BACKEND_OPENCV);
+            net.setPreferableTarget(cv::dnn::DNN_TARGET_CPU);
+            std::cout << "Backend set to OPENCV/CPU" << std::endl;
+            
+            // Try forward again
+            outputs.clear();
+            net.forward(outputs, net.getUnconnectedOutLayersNames());
+            std::cout << "✓ Forward pass successful after backend change!" << std::endl;
+            
+        } catch (const cv::Exception& e2) {
+            std::cerr << "Still failed after backend change: " << e2.what() << std::endl;
+            return;
+        }
     }
+
 
     if (outputs.empty()) {
         std::cerr << "Network did not return any outputs." << std::endl;
