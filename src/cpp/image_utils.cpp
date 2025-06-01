@@ -117,7 +117,7 @@ void detect(const std::string &imagePath, cv::dnn::Net &net, std::vector<Detecti
         float max_confidence = 0.0f;
         int best_class_id = 0;
         
-        for (int c = 0; c < 80; ++c) {  // 80 COCO classes
+        for (int c = 0; c < 11; ++c) {  // 80 COCO classes
             float class_conf = data[(4 + c) * numDetections + i];
             if (class_conf > max_confidence) {
                 max_confidence = class_conf;

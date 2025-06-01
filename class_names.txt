@@ -1,4 +1,3 @@
-names:
 Armored personnel carrier
 Armored combat support vehicle
 Anti-aircraft vehicle

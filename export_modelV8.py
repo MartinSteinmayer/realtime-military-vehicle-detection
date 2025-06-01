@@ -50,7 +50,7 @@ def main():
     try:
         export_path = model.export(
             format="onnx",
-            imgsz=320,          # FIXED: Use 320 to match your C++ code
+            imgsz=320,          # FIXED: Use 320
             dynamic=False,      # Fixed input size for better compatibility
             simplify=True,      # Simplify the model for better performance
             opset=11,          # ONNX opset version for OpenCV 4.6 compatibility
