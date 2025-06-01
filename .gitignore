@@ -14,5 +14,7 @@ build/
 # Executable
 guardian_lense
 
-# Random images
+# Random images & videos
 *.jpg
+*.png
+*.avi
