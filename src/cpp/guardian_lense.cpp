@@ -131,6 +131,10 @@ int main(int argc, char* argv[]) {
     std::string modelPath = "yolov8n.onnx";
     cv::dnn::Net net = cv::dnn::readNetFromONNX(modelPath);
 
+    // Fix for dimension incompatibility between different OpenCV versions (for compilation)
+    net.setPreferableBackend(cv::dnn::DNN_BACKEND_OPENCV);
+    net.setPreferableTarget(cv::dnn::DNN_TARGET_CPU);
+
     // Load class names
     std::string classFilePath = "class_names.txt";
     std::vector<std::string> classNames = loadClassNames(classFilePath);
