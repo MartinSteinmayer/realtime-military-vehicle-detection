@@ -77,13 +77,25 @@ void detect(const std::string &imagePath, cv::dnn::Net &net, std::vector<Detecti
         return;
     }
 
+    // Force CPU backend for maximum compatibility
+    net.setPreferableBackend(cv::dnn::DNN_BACKEND_OPENCV);
+    net.setPreferableTarget(cv::dnn::DNN_TARGET_CPU);
+
     cv::Mat blob;
-    // OpenCV 4.6 compatible blob creation - ensure correct channel order
+    // YOLOv5 blob creation
     cv::dnn::blobFromImage(image, blob, 1.0 / 255.0, cv::Size(INPUT_WIDTH, INPUT_HEIGHT), cv::Scalar(), true, false, CV_32F);
     net.setInput(blob);
 
     std::vector<cv::Mat> outputs;
-    net.forward(outputs, net.getUnconnectedOutLayersNames());
+    try {
+        // YOLOv5 is more compatible with simple forward()
+        cv::Mat output = net.forward();
+        outputs.push_back(output);
+        std::cout << "✓ Forward pass successful!" << std::endl;
+    } catch (const cv::Exception& e) {
+        std::cerr << "Error during network forward pass: " << e.what() << std::endl;
+        return;
+    }
 
     if (outputs.empty()) {
         std::cerr << "Network did not return any outputs." << std::endl;
@@ -92,26 +104,33 @@ void detect(const std::string &imagePath, cv::dnn::Net &net, std::vector<Detecti
 
     const cv::Mat& outputMat = outputs[0];
     
-    // Handle both possible output formats for better compatibility
-    int numDetections, numAttributes;
-    float* data = (float*)outputMat.data;
+    std::cout << "Output tensor dims: " << outputMat.dims << std::endl;
+    std::cout << "Output tensor shape: ";
+    for (int i = 0; i < outputMat.dims; i++) {
+        std::cout << outputMat.size[i] << " ";
+    }
+    std::cout << std::endl;
     
-    // Check output dimensions and handle accordingly
-    if (outputMat.dims == 3 && outputMat.size[0] == 1) {
-        // Format: [1, 84, 8400] - typical YOLOv8 output
-        numDetections = outputMat.size[2];
-        numAttributes = outputMat.size[1];
-        std::cout << "3D tensor format: [" << outputMat.size[0] << ", " << outputMat.size[1] << ", " << outputMat.size[2] << "]" << std::endl;
-    } else if (outputMat.dims == 2) {
-        // Format: [8400, 84] - some ONNX exports
-        numDetections = outputMat.size[0];
-        numAttributes = outputMat.size[1];
-        std::cout << "2D tensor format: [" << outputMat.size[0] << ", " << outputMat.size[1] << "]" << std::endl;
-    } else {
-        std::cerr << "Unsupported output tensor format. Dims: " << outputMat.dims << std::endl;
-        for (int i = 0; i < outputMat.dims; ++i) {
-            std::cerr << "Size[" << i << "]: " << outputMat.size[i] << std::endl;
-        }
+    // YOLOv5 format: [1, N_detections, 85]
+    // 85 = 4 (bbox) + 1 (objectness) + 80 (class probabilities)
+    if (outputMat.dims != 3) {
+        std::cerr << "Expected 3D tensor, got " << outputMat.dims << "D" << std::endl;
+        return;
+    }
+    
+    int batch_size = outputMat.size[0];
+    int num_detections = outputMat.size[1];
+    int num_attributes = outputMat.size[2];
+    
+    std::cout << "YOLOv5 format: [" << batch_size << ", " << num_detections << ", " << num_attributes << "]" << std::endl;
+    
+    if (batch_size != 1) {
+        std::cerr << "Expected batch size 1, got " << batch_size << std::endl;
+        return;
+    }
+    
+    if (num_attributes != 85) {
+        std::cerr << "Expected 85 attributes (4+1+80), got " << num_attributes << std::endl;
         return;
     }
 
@@ -119,69 +138,68 @@ void detect(const std::string &imagePath, cv::dnn::Net &net, std::vector<Detecti
     std::vector<float> confidences;
     std::vector<cv::Rect> boxes;
 
-    // Calculate scaling factors from downscaled size to original size
-    float x_factor = static_cast<float>(originalSize.width) / readSize.width;
-    float y_factor = static_cast<float>(originalSize.height) / readSize.height;
+    // Calculate scaling factors
+    float x_factor = static_cast<float>(originalSize.width) / INPUT_WIDTH;
+    float y_factor = static_cast<float>(originalSize.height) / INPUT_HEIGHT;
     
-    for (int i = 0; i < numDetections; ++i) {
-        float center_x, center_y, width, height;
+    // Access tensor data
+    float* data = (float*)outputMat.data;
+    
+    std::cout << "Processing " << num_detections << " detections..." << std::endl;
+    
+    for (int i = 0; i < num_detections; ++i) {
+        // Calculate the base index for this detection
+        int base_idx = i * num_attributes;
         
-        // Handle different tensor layouts
-        if (outputMat.dims == 3 && outputMat.size[0] == 1) {
-            // 3D format: [1, attributes, detections]
-            center_x = data[0 * numDetections + i];
-            center_y = data[1 * numDetections + i];
-            width = data[2 * numDetections + i];
-            height = data[3 * numDetections + i];
-        } else {
-            // 2D format: [detections, attributes]
-            center_x = data[i * numAttributes + 0];
-            center_y = data[i * numAttributes + 1];
-            width = data[i * numAttributes + 2];
-            height = data[i * numAttributes + 3];
+        // Extract bounding box (center format)
+        float center_x = data[base_idx + 0];
+        float center_y = data[base_idx + 1];
+        float width = data[base_idx + 2];
+        float height = data[base_idx + 3];
+        
+        // Extract objectness score (YOLOv5 specific)
+        float objectness = data[base_idx + 4];
+        
+        // Skip low objectness detections early
+        if (objectness < CONFIDENCE_THRESHOLD) {
+            continue;
         }
         
-        // Find the maximum class confidence
-        float max_confidence = 0.0f;
+        // Find the class with highest probability
+        float max_class_prob = 0.0f;
         int best_class_id = 0;
         
         for (int c = 0; c < 80; ++c) {  // 80 COCO classes
-            float class_conf;
-            
-            if (outputMat.dims == 3 && outputMat.size[0] == 1) {
-                class_conf = data[(4 + c) * numDetections + i];
-            } else {
-                class_conf = data[i * numAttributes + (4 + c)];
-            }
-            
-            if (class_conf > max_confidence) {
-                max_confidence = class_conf;
+            float class_prob = data[base_idx + 5 + c];  // Classes start at index 5
+            if (class_prob > max_class_prob) {
+                max_class_prob = class_prob;
                 best_class_id = c;
             }
         }
         
+        // YOLOv5 final confidence = objectness * class_probability
+        float final_confidence = objectness * max_class_prob;
+        
         // Only process detections above threshold
-        if (max_confidence >= CONFIDENCE_THRESHOLD) {
+        if (final_confidence >= CONFIDENCE_THRESHOLD) {
             // Bounds check for class_id
             if (best_class_id >= static_cast<int>(classNames.size())) {
                 std::cout << "Warning: class_id " << best_class_id << " >= classNames.size() " << classNames.size() << std::endl;
                 continue;
             }
             
-            std::cout << "Detection found: class=" << classNames[best_class_id] 
-                      << " (ID=" << best_class_id << ") confidence=" << max_confidence << std::endl;
+            std::cout << "Detection: class=" << classNames[best_class_id] 
+                      << " objectness=" << objectness 
+                      << " class_prob=" << max_class_prob
+                      << " final_conf=" << final_confidence << std::endl;
             
             // Convert from center format to top-left corner format
             float x = center_x - width / 2.0f;
             float y = center_y - height / 2.0f;
 
-            // Remove padding offset to get coordinates on downscaled rectangular image
-            float x_unpadded = x - offset.x;
-            float y_unpadded = y - offset.y;
-            
             // Scale to original image size
-            int left = static_cast<int>(x_unpadded * x_factor);
-            int top = static_cast<int>(y_unpadded * y_factor);
+            int left = static_cast<int>(x * x_factor);
+            int top = static_cast<int>(y * y_factor);
             int box_width = static_cast<int>(width * x_factor);
             int box_height = static_cast<int>(height * y_factor);
 
@@ -196,23 +214,34 @@ void detect(const std::string &imagePath, cv::dnn::Net &net, std::vector<Detecti
             // Only add valid boxes
             if (box_width > 0 && box_height > 0) {
                 class_ids.push_back(best_class_id);
-                confidences.push_back(max_confidence);
+                confidences.push_back(final_confidence);
                 boxes.emplace_back(left, top, box_width, box_height);
             }
         }
     }
 
-    // Apply Non-Maximum Suppression (OpenCV 4.6 compatible)
+    std::cout << "Found " << boxes.size() << " detections before NMS" << std::endl;
+
+    // Apply Non-Maximum Suppression
     std::vector<int> nms_result;
-    cv::dnn::NMSBoxes(boxes, confidences, CONFIDENCE_THRESHOLD, NMS_THRESHOLD, nms_result);
+    try {
+        cv::dnn::NMSBoxes(boxes, confidences, CONFIDENCE_THRESHOLD, NMS_THRESHOLD, nms_result);
+    } catch (const cv::Exception& e) {
+        std::cerr << "Error in NMSBoxes: " << e.what() << std::endl;
+        return;
+    }
+
+    std::cout << "Found " << nms_result.size() << " detections after NMS" << std::endl;
 
     for (size_t idx_i = 0; idx_i < nms_result.size(); ++idx_i) {
         int idx = nms_result[idx_i];
-        Detection result;
-        result.classID = class_ids[idx];
-        result.confidence = confidences[idx];
-        result.box = boxes[idx];
-        output.push_back(result);
+        if (idx >= 0 && idx < static_cast<int>(class_ids.size())) {
+            Detection result;
+            result.classID = class_ids[idx];
+            result.confidence = confidences[idx];
+            result.box = boxes[idx];
+            output.push_back(result);
+        }
     }
 }
 
