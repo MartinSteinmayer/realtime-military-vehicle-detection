@@ -72,25 +72,6 @@ int main(int argc, char* argv[]) {
         printUsage(argv[0]);
         return 1;
     }
-     std::atomic<bool> stopFlag{false};
-    // Launch a thread that waits for the user to press Enter:
-    std::thread inputThread([&](){
-        // This will block until user presses Enter (i.e. an empty line)
-        try {
-        std::string line;
-        if (std::getline(std::cin, line)) {
-            // Successfully read a (possibly empty) line
-        }
-        // Even if getline() fails or EOF is reached, we still want to stop:
-        stopFlag = true;
-    }
-    catch (...) {
-        // Swallow any exception from getline, but still signal stop
-        stopFlag = true;
-    }
-
-    });
-
     // -------------------------------
     // 2) Open the camera (VideoCapture)
     // -------------------------------
@@ -204,10 +185,6 @@ int main(int argc, char* argv[]) {
         }
         else { // save
             writer.write(procFrame);
-             if (stopFlag.load()) {
-                std::cout << "ENTER pressed. Exiting loop.\n";
-                break;
-            }
         }
     }
 
@@ -222,6 +199,5 @@ int main(int argc, char* argv[]) {
         writer.release();
     }
     std::cout << "Finished.\n";
-    inputThread.join();
     return 0;
 }
