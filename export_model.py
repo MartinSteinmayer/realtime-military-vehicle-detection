@@ -40,7 +40,7 @@ def main():
     print("\n4. Exporting to ONNX format...")
     export_path = model.export(
         format="onnx",
-        imgsz=640,  # Input image size
+        imgsz=320,  # Input image size
         dynamic=False,  # Fixed input size for better compatibility
         simplify=True,  # Simplify the model for better performance
         opset=11  # ONNX opset version (good compatibility)
