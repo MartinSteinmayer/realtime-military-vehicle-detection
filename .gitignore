@@ -8,5 +8,11 @@ test_pictures/
 __pycache__/
 .vscode/
 
+# Build files
 build/
-yolov8_detector
+
+# Executable
+guardian_lense
+
+# Random images
+*.jpg
