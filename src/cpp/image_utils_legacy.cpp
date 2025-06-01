@@ -83,7 +83,12 @@ void detect(const std::string &imagePath, cv::dnn::Net &net, std::vector<Detecti
     net.setInput(blob);
 
     std::vector<cv::Mat> outputs;
-    net.forward(outputs, net.getUnconnectedOutLayersNames());
+    try {
+        net.forward(outputs, net.getUnconnectedOutLayersNames());
+    } catch (const cv::Exception& e) {
+        std::cerr << "Error during network forward pass: " << e.what() << std::endl;
+        return;
+    }
 
     if (outputs.empty()) {
         std::cerr << "Network did not return any outputs." << std::endl;
@@ -92,26 +97,78 @@ void detect(const std::string &imagePath, cv::dnn::Net &net, std::vector<Detecti
 
     const cv::Mat& outputMat = outputs[0];
     
-    // Handle both possible output formats for better compatibility
-    int numDetections, numAttributes;
-    float* data = (float*)outputMat.data;
+    // Comprehensive output tensor information
+    std::cout << "Output tensor dims: " << outputMat.dims << std::endl;
+    std::cout << "Output tensor type: " << outputMat.type() << " (should be " << CV_32F << ")" << std::endl;
+    std::cout << "Output tensor continuous: " << (outputMat.isContinuous() ? "yes" : "no") << std::endl;
+    std::cout << "Output tensor size: ";
+    for (int i = 0; i < outputMat.dims; i++) {
+        std::cout << outputMat.size[i] << " ";
+    }
+    std::cout << std::endl;
     
-    // Check output dimensions and handle accordingly
-    if (outputMat.dims == 3 && outputMat.size[0] == 1) {
-        // Format: [1, 84, 8400] - typical YOLOv8 output
-        numDetections = outputMat.size[2];
-        numAttributes = outputMat.size[1];
-        std::cout << "3D tensor format: [" << outputMat.size[0] << ", " << outputMat.size[1] << ", " << outputMat.size[2] << "]" << std::endl;
-    } else if (outputMat.dims == 2) {
-        // Format: [8400, 84] - some ONNX exports
-        numDetections = outputMat.size[0];
-        numAttributes = outputMat.size[1];
-        std::cout << "2D tensor format: [" << outputMat.size[0] << ", " << outputMat.size[1] << "]" << std::endl;
+    // Ensure the tensor is the expected type
+    if (outputMat.type() != CV_32F) {
+        std::cerr << "Error: Expected CV_32F tensor, got type " << outputMat.type() << std::endl;
+        return;
+    }
+    
+    // Ensure tensor is continuous for safe pointer access
+    cv::Mat flatMat;
+    if (!outputMat.isContinuous()) {
+        flatMat = outputMat.clone();
     } else {
-        std::cerr << "Unsupported output tensor format. Dims: " << outputMat.dims << std::endl;
-        for (int i = 0; i < outputMat.dims; ++i) {
-            std::cerr << "Size[" << i << "]: " << outputMat.size[i] << std::endl;
+        flatMat = outputMat;
+    }
+    
+    // Handle different tensor formats more safely
+    int numDetections, numAttributes;
+    bool isTransposed = false;
+    
+    if (outputMat.dims == 3) {
+        if (outputMat.size[0] == 1 && outputMat.size[1] == 84 && outputMat.size[2] == 8400) {
+            // Standard YOLOv8: [1, 84, 8400]
+            numDetections = outputMat.size[2];
+            numAttributes = outputMat.size[1];
+            isTransposed = false;
+            std::cout << "Using 3D format [1, 84, 8400]" << std::endl;
+        } else if (outputMat.size[0] == 1 && outputMat.size[1] == 8400 && outputMat.size[2] == 84) {
+            // Alternative YOLOv8: [1, 8400, 84]
+            numDetections = outputMat.size[1];
+            numAttributes = outputMat.size[2];
+            isTransposed = true;
+            std::cout << "Using 3D format [1, 8400, 84]" << std::endl;
+        } else {
+            std::cerr << "Unsupported 3D tensor format: [" << outputMat.size[0] 
+                      << ", " << outputMat.size[1] << ", " << outputMat.size[2] << "]" << std::endl;
+            return;
         }
+    } else if (outputMat.dims == 2) {
+        if (outputMat.size[0] == 8400 && outputMat.size[1] == 84) {
+            // 2D format: [8400, 84]
+            numDetections = outputMat.size[0];
+            numAttributes = outputMat.size[1];
+            isTransposed = true;
+            std::cout << "Using 2D format [8400, 84]" << std::endl;
+        } else if (outputMat.size[0] == 84 && outputMat.size[1] == 8400) {
+            // 2D format: [84, 8400]
+            numDetections = outputMat.size[1];
+            numAttributes = outputMat.size[0];
+            isTransposed = false;
+            std::cout << "Using 2D format [84, 8400]" << std::endl;
+        } else {
+            std::cerr << "Unsupported 2D tensor format: [" << outputMat.size[0] 
+                      << ", " << outputMat.size[1] << "]" << std::endl;
+            return;
+        }
+    } else {
+        std::cerr << "Unsupported tensor dimensions: " << outputMat.dims << std::endl;
+        return;
+    }
+
+    // Validate expected dimensions
+    if (numAttributes < 84) {
+        std::cerr << "Error: Expected at least 84 attributes (4 bbox + 80 classes), got " << numAttributes << std::endl;
         return;
     }
 
@@ -123,37 +180,65 @@ void detect(const std::string &imagePath, cv::dnn::Net &net, std::vector<Detecti
     float x_factor = static_cast<float>(originalSize.width) / readSize.width;
     float y_factor = static_cast<float>(originalSize.height) / readSize.height;
     
+    // Use safer tensor access method
+    float* data = (float*)flatMat.data;
+    int totalElements = flatMat.total();
+    
+    std::cout << "Processing " << numDetections << " detections with " << numAttributes << " attributes each" << std::endl;
+    
     for (int i = 0; i < numDetections; ++i) {
         float center_x, center_y, width, height;
         
-        // Handle different tensor layouts
-        if (outputMat.dims == 3 && outputMat.size[0] == 1) {
-            // 3D format: [1, attributes, detections]
-            center_x = data[0 * numDetections + i];
-            center_y = data[1 * numDetections + i];
-            width = data[2 * numDetections + i];
-            height = data[3 * numDetections + i];
+        // Calculate indices more safely
+        int bbox_indices[4];
+        if (outputMat.dims == 3 && !isTransposed) {
+            // 3D format [1, 84, 8400]: attributes first, then detections
+            for (int j = 0; j < 4; j++) {
+                bbox_indices[j] = j * numDetections + i;
+            }
         } else {
-            // 2D format: [detections, attributes]
-            center_x = data[i * numAttributes + 0];
-            center_y = data[i * numAttributes + 1];
-            width = data[i * numAttributes + 2];
-            height = data[i * numAttributes + 3];
+            // 2D format [8400, 84] or 3D [1, 8400, 84]: detections first, then attributes
+            for (int j = 0; j < 4; j++) {
+                bbox_indices[j] = i * numAttributes + j;
+            }
         }
+        
+        // Bounds check before accessing
+        bool valid_indices = true;
+        for (int j = 0; j < 4; j++) {
+            if (bbox_indices[j] >= totalElements) {
+                std::cerr << "Index out of bounds: " << bbox_indices[j] << " >= " << totalElements << std::endl;
+                valid_indices = false;
+                break;
+            }
+        }
+        
+        if (!valid_indices) continue;
+        
+        center_x = data[bbox_indices[0]];
+        center_y = data[bbox_indices[1]];
+        width = data[bbox_indices[2]];
+        height = data[bbox_indices[3]];
         
         // Find the maximum class confidence
         float max_confidence = 0.0f;
         int best_class_id = 0;
         
         for (int c = 0; c < 80; ++c) {  // 80 COCO classes
-            float class_conf;
-            
-            if (outputMat.dims == 3 && outputMat.size[0] == 1) {
-                class_conf = data[(4 + c) * numDetections + i];
+            int class_idx;
+            if (outputMat.dims == 3 && !isTransposed) {
+                class_idx = (4 + c) * numDetections + i;
             } else {
-                class_conf = data[i * numAttributes + (4 + c)];
+                class_idx = i * numAttributes + (4 + c);
             }
             
+            // Bounds check
+            if (class_idx >= totalElements) {
+                std::cerr << "Class index out of bounds: " << class_idx << " >= " << totalElements << std::endl;
+                break;
+            }
+            
+            float class_conf = data[class_idx];
             if (class_conf > max_confidence) {
                 max_confidence = class_conf;
                 best_class_id = c;
@@ -204,15 +289,22 @@ void detect(const std::string &imagePath, cv::dnn::Net &net, std::vector<Detecti
 
     // Apply Non-Maximum Suppression (OpenCV 4.6 compatible)
     std::vector<int> nms_result;
-    cv::dnn::NMSBoxes(boxes, confidences, CONFIDENCE_THRESHOLD, NMS_THRESHOLD, nms_result);
+    try {
+        cv::dnn::NMSBoxes(boxes, confidences, CONFIDENCE_THRESHOLD, NMS_THRESHOLD, nms_result);
+    } catch (const cv::Exception& e) {
+        std::cerr << "Error in NMSBoxes: " << e.what() << std::endl;
+        return;
+    }
 
     for (size_t idx_i = 0; idx_i < nms_result.size(); ++idx_i) {
         int idx = nms_result[idx_i];
-        Detection result;
-        result.classID = class_ids[idx];
-        result.confidence = confidences[idx];
-        result.box = boxes[idx];
-        output.push_back(result);
+        if (idx >= 0 && idx < static_cast<int>(class_ids.size())) {
+            Detection result;
+            result.classID = class_ids[idx];
+            result.confidence = confidences[idx];
+            result.box = boxes[idx];
+            output.push_back(result);
+        }
     }
 }
 
