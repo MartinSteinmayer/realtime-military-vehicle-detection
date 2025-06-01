@@ -128,7 +128,8 @@ int main(int argc, char* argv[]) {
     auto lastTime = std::chrono::steady_clock::now();
 
     // Load model
-    std::string modelPath = "yolov8n.onnx";
+    // std::string modelPath = "yolov8n.onnx";
+    std::string modelPath = "best.onnx";
     cv::dnn::Net net = cv::dnn::readNetFromONNX(modelPath);
 
     if (net.empty()) {
