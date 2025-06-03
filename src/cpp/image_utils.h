@@ -30,12 +30,6 @@ bool readImage(const std::string& imagePath, cv::Mat& outputImage);
 
 
 /*
-Takes in a raw cv::Mat and co;nverts it to the expected YOLO input format
-*/
-cv::Mat prepareYOLOInput(const cv::Mat& src);
-
-
-/*
 Takes in image path and returns processed, YOLO-conform cv::Mat. Writes the size of the original image in the readSize object.
 */
 cv::Mat preProcessImage(const std::string& imagePath, cv::Size& originalSize, cv::Size& readSize, cv::Point& offset);
@@ -44,7 +38,7 @@ cv::Mat preProcessImage(const std::string& imagePath, cv::Size& originalSize, cv
 /*
 Performs class detection and annotates the given image
 */
-void detect(const std::string &imagePath, cv::dnn::Net &net, std::vector<Detection> &output, const std::vector<std::string> &className);
+void detect(const std::string &imagePath, cv::dnn::Net &net, std::vector<Detection> &output, const std::vector<std::string> &className, const bool verbose = false);
 
 
 /*
@@ -62,4 +56,4 @@ void drawDetections(cv::Mat& image, const std::vector<Detection>& detections, co
 /*
 Run the full image processing on one image
 */
-bool runSingleImageProcessing(const std::string& inputPath, const std::string& outputPath, cv::dnn::Net& net, std::vector<std::string>& classNames);
+bool runSingleImageProcessing(const std::string& inputPath, const std::string& outputPath, cv::dnn::Net& net, const std::vector<std::string>& classNames, const bool verbose = false);

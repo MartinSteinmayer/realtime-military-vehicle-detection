@@ -68,7 +68,7 @@ cv::Mat preProcessImage(const std::string& imagePath, cv::Size& originalSize, cv
 }
 
 
-void detect(const std::string &imagePath, cv::dnn::Net &net, std::vector<Detection> &output, const std::vector<std::string> &classNames) {
+void detect(const std::string &imagePath, cv::dnn::Net &net, std::vector<Detection> &output, const std::vector<std::string> &classNames, const bool verbose) {
     cv::Size originalSize;
     cv::Size readSize;
     cv::Point offset;
@@ -82,103 +82,120 @@ void detect(const std::string &imagePath, cv::dnn::Net &net, std::vector<Detecti
     cv::dnn::blobFromImage(image, blob, 1.0 / 255.0, cv::Size(INPUT_WIDTH, INPUT_HEIGHT), cv::Scalar(), true, false);
     net.setInput(blob);
 
+    const std::vector<cv::String> outLayerNames = net.getUnconnectedOutLayersNames();
+    
     std::vector<cv::Mat> outputs;
-    net.forward(outputs, net.getUnconnectedOutLayersNames());
+    outputs.reserve(outLayerNames.size());
+    net.forward(outputs, outLayerNames);
 
     if (outputs.empty()) {
-        std::cerr << "Network did not return any outputs." << std::endl;
+        std::cerr << "Network produced no outputs." << std::endl;
         return;
     }
 
     const cv::Mat& outputMat = outputs[0];
+    if (outputMat.dims != 3 || outputMat.size[1] < 4) {
+        std::cerr << "Invalid output format from network." << std::endl;
+        return;
+    }
     
-    // YOLOv8 output format: [1, 84, 8400] where 84 = 4 (bbox) + 80 (classes)
-    int numDetections = outputMat.size[2];  // 8400
-    int numAttributes = outputMat.size[1];  // 84
-    
-    float* data = (float*)outputMat.data;
+    const int numDetections = outputMat.size[2];
+    const int numAttributes = outputMat.size[1];
+    const int numClasses = numAttributes - 4; // subtract bbox coords
 
-    std::vector<int> class_ids;
+    const int maxClassId = std::min(numClasses, static_cast<int>(classNames.size()));
+    
+    const float* data = reinterpret_cast<const float*>(outputMat.data);
+
+    std::vector<int> classIds;
     std::vector<float> confidences;
     std::vector<cv::Rect> boxes;
 
     // Calculate scaling factors from downscaled size to original size
-    float x_factor = static_cast<float>(originalSize.width) / readSize.width;
-    float y_factor = static_cast<float>(originalSize.height) / readSize.height;
+    float xFactor = static_cast<float>(originalSize.width) / readSize.width;
+    float yFactor = static_cast<float>(originalSize.height) / readSize.height;
     
     for (int i = 0; i < numDetections; ++i) {
         // YOLOv8 format: [cx, cy, w, h, class0_conf, class1_conf, ..., class79_conf]
-        float center_x = data[0 * numDetections + i];
-        float center_y = data[1 * numDetections + i];
-        float width = data[2 * numDetections + i];
-        float height = data[3 * numDetections + i];
+        const float centerX = data[i];
+        const float centerY = data[1 * numDetections + i];
+        const float width = data[2 * numDetections + i];
+        const float height = data[3 * numDetections + i];
         
         // Find the maximum class confidence (no separate objectness score in YOLOv8)
-        float max_confidence = 0.0f;
-        int best_class_id = 0;
+        float maxConfidence = 0.0f;
+        int bestClassId = 0;
         
-        for (int c = 0; c < 11; ++c) {  // 80 COCO classes
-            float class_conf = data[(4 + c) * numDetections + i];
-            if (class_conf > max_confidence) {
-                max_confidence = class_conf;
-                best_class_id = c;
+        const float* classScores = &data[4 * numDetections + i];
+        for (int c = 0; c < maxClassId; ++c) {
+            const float classConf = classScores[c * numDetections];
+            if (classConf > maxConfidence) {
+                maxConfidence = classConf;
+                bestClassId = c;
             }
         }
         
         // Only process detections above threshold
-        if (max_confidence >= CONFIDENCE_THRESHOLD) {
-            std::cout << "Detection found: class=" << classNames[best_class_id] 
-                      << " (ID=" << best_class_id << ") confidence=" << max_confidence << std::endl;
-            
-            // Convert from center format to top-left corner format
-            float x = center_x - width / 2.0f;
-            float y = center_y - height / 2.0f;
+        if (maxConfidence >= CONFIDENCE_THRESHOLD) {
+            if (verbose) {
+                std::cout << "Detection found: class=" << classNames[bestClassId] 
+                          << " (ID=" << bestClassId << ") confidence=" << maxConfidence << std::endl;
+            }
 
-            // Remove padding offset to get coordinates on downscaled rectangular image
-            float x_unpadded = x - offset.x;
-            float y_unpadded = y - offset.y;
+            // Convert from center format to top-left corner format
+            const float x = centerX - width * 0.5f - offset.x;
+            const float y = centerY - height * 0.5f - offset.y;
             
             // Scale to original image size
-            int left = static_cast<int>(x_unpadded * x_factor);
-            int top = static_cast<int>(y_unpadded * y_factor);
-            int box_width = static_cast<int>(width * x_factor);
-            int box_height = static_cast<int>(height * y_factor);
-
-            // Clamp to image bounds
-            left = std::max(0, left);
-            top = std::max(0, top);
-            if (left + box_width > originalSize.width) 
-                box_width = originalSize.width - left;
-            if (top + box_height > originalSize.height) 
-                box_height = originalSize.height - top;
+            const int left = std::max(0, static_cast<int>(x * xFactor));
+            const int top = std::max(0, static_cast<int>(y * yFactor));
+            const int boxWidth = std::min(static_cast<int>(width * xFactor), 
+                                        originalSize.width - left);
+            const int boxHeight = std::min(static_cast<int>(height * yFactor), 
+                                        originalSize.height - top);
 
             // Only add valid boxes
-            if (box_width > 0 && box_height > 0) {
-                class_ids.push_back(best_class_id);
-                confidences.push_back(max_confidence);
-                boxes.emplace_back(left, top, box_width, box_height);
+            if (boxWidth > 0 && boxHeight > 0) {
+                classIds.push_back(bestClassId);
+                confidences.push_back(maxConfidence);
+                boxes.emplace_back(left, top, boxWidth, boxHeight);
             }
         }
     }
 
-    // Apply Non-Maximum Suppression
-    std::vector<int> nms_result;
-    cv::dnn::NMSBoxes(boxes, confidences, CONFIDENCE_THRESHOLD, NMS_THRESHOLD, nms_result);
+    if (!boxes.empty()) {
+        // Apply Non-Maximum Suppression
+        std::vector<int> nmsResult;
+        cv::dnn::NMSBoxes(boxes, confidences, CONFIDENCE_THRESHOLD, NMS_THRESHOLD, nmsResult);
 
-    for (int idx : nms_result) {
-        Detection result;
-        result.classID = class_ids[idx];
-        result.confidence = confidences[idx];
-        result.box = boxes[idx];
-        output.push_back(result);
+        output.reserve(nmsResult.size());
+
+        for (const int idx : nmsResult) {
+            Detection result;
+            result.classID = classIds[idx];
+            result.confidence = confidences[idx];
+            result.box = boxes[idx];
+            output.push_back(std::move(result));
+        }
     }
 }
 
 
 cv::Scalar getClassColor(int classID) {
-    // Generate deterministic colors based on class ID
-    cv::RNG rng(classID * 12345); // Use class ID as seed for consistent colors
-    return cv::Scalar(rng.uniform(100, 255), rng.uniform(100, 255), rng.uniform(100, 255));
+    // Use static cache for consistent colors
+    static std::unordered_map<int, cv::Scalar> colorCache;
+    
+    auto it = colorCache.find(classID);
+    if (it != colorCache.end()) {
+        return it->second;
+    }
+    
+    // Generate deterministic color
+    cv::RNG rng(classID * 12345);
+    cv::Scalar color(rng.uniform(100, 255), rng.uniform(100, 255), rng.uniform(100, 255));
+    
+    colorCache[classID] = color;
+    return color;
 }
 
 
@@ -241,9 +258,14 @@ void drawDetections(cv::Mat& image, const std::vector<Detection>& detections, co
 }
 
 
-bool runSingleImageProcessing(const std::string& inputPath, const std::string& outputPath, cv::dnn::Net& net, std::vector<std::string>& classNames) {
+bool runSingleImageProcessing(const std::string& inputPath, const std::string& outputPath, cv::dnn::Net& net, const std::vector<std::string>& classNames, const bool verbose) {
+    if (inputPath.empty() || outputPath.empty()) {
+        std::cerr << "Invalid input or output path." << std::endl;
+        return false;
+    }
+    
     std::vector<Detection> detections;
-    detect(inputPath, net, detections, classNames);
+    detect(inputPath, net, detections, classNames, verbose);
     
     // Load original image to display/save results
     cv::Mat originalImage = cv::imread(inputPath);

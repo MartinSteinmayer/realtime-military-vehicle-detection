@@ -148,6 +148,7 @@ int main(int argc, char* argv[]) {
 
     // Main loop
     std::cout << "Starting main loop. Press 'q' in display mode to quit.\n";
+    size_t iteration = 0;
     while (true) {
         // 4a) Grab a raw frame
         cap >> rawFrame;
@@ -171,7 +172,14 @@ int main(int argc, char* argv[]) {
         }
 
         // Run detection for specified image
-        runSingleImageProcessing(inputImagePath, outputImagePath, net, classNames);
+        auto start = std::chrono::high_resolution_clock::now();
+        runSingleImageProcessing(inputImagePath, outputImagePath, net, classNames, false);
+        auto end = std::chrono::high_resolution_clock::now();
+        if (iteration % 100 == 0) {
+            auto timeTaken = end - start;
+            auto timeMs = std::chrono::duration_cast<std::chrono::milliseconds>(timeTaken).count();
+            std::cout << "Time for single image processing: " << timeMs << "ms" << std::endl;
+        }
 
         // 4e) Read the processed frame
         cv::Mat procFrame = cv::imread(outputImagePath, cv::IMREAD_COLOR);
@@ -192,6 +200,7 @@ int main(int argc, char* argv[]) {
         else { // save
             writer.write(procFrame);
         }
+        iteration++;
     }
 
     // ------------------------------------
