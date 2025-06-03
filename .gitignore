@@ -12,7 +12,8 @@ __pycache__/
 build/
 
 # Executable
-guardian_lense
+guardian_sight
+# guardian_lense    # DEPR
 
 # Random images & videos
 *.jpg
