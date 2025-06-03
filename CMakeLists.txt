@@ -12,6 +12,7 @@ add_executable(guardian_lense
     src/cpp/guardian_lense.cpp
     src/cpp/image_utils.cpp
     src/cpp/file_utils.cpp
+    src/cpp/config.cpp
 )
 
 target_link_libraries(guardian_lense ${OpenCV_LIBS})

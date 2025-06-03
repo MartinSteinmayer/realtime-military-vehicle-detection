@@ -1,20 +1,3 @@
-// capture_and_process_disk_v2.cpp
-//
-// - Captures from the Pi camera at ~15 FPS.
-// - For each frame, writes it to "/tmp/input.png".
-// - Calls preProcessImageOnDisk("/tmp/input.png", "/tmp/output.png").
-//     (You should replace this stub with your actual header & function.)
-// - Loads "/tmp/output.png" back into OpenCV.
-// - Either displays it or writes it to a VideoWriter, based on --mode.
-//
-// Usage examples:
-//   Live display:
-//     ./guardian_lense --mode display
-//
-//   Save to disk:
-//     ./guardian_lense --mode save --output processed.avi
-//
-
 #include <opencv2/opencv.hpp>
 #include <iostream>
 #include <string>
@@ -23,141 +6,126 @@
 #include <atomic>
 
 #include "image_utils.h"
+#include "file_utils.h"
+#include "config.h"
 
 // --------------------------------------------------------------------------------
-// Print usage if arguments are missing or invalid.
+// Print usage if config is missing or invalid.
 // --------------------------------------------------------------------------------
 void printUsage(const char* progName)
 {
     std::cerr << "Usage:\n"
-              << "  " << progName << " --mode <display|save> [--output <out.avi>]\n\n"
-              << "  --mode    Either \"display\" or \"save\".\n"
-              << "  --output  (Required if --mode save) Path to the output video file.\n\n"
-              << "This program will:\n"
-              << "  1) Capture a frame from the camera at ~15 FPS.\n"
-              << "  2) Write it to \"/tmp/input.png\".\n"
-              << "  3) Call preProcessImageOnDisk(\"/tmp/input.png\", \"/tmp/output.png\").\n"
-              << "     Replace that stub with your actual header/function.\n"
-              << "  4) Read \"/tmp/output.png\" and either display it or save it.\n";
+              << "  " << progName << " <config.json>\n\n"
+              << "  Example config.json:\n"
+              << "  {\n"
+              << "    \"verbose\": true,\n"
+              << "    \"modelPath\": \"model_data/best.onnx\",\n"
+              << "    \"classNamesPath\": \"model_data/class_names.txt\",\n"
+              << "    \"mode\": \"display\",\n"
+              << "    \"outputPath\": \"output.avi\",\n"
+              << "    \"fpsLimit\": 15\n"
+              << "  }"
+              << "If the config path is not specified, the program will try to read from config.json."
+              << std::endl;
 }
 
 
 int main(int argc, char* argv[]) {
-    // -------------------------
-    // 1) Parse command‐line args
-    // -------------------------
-    std::string mode;
-    std::string outputVideo;
-    for (int i = 1; i < argc; ++i) {
-        std::string arg = argv[i];
-        if (arg == "--mode" && i + 1 < argc) {
-            mode = argv[++i];
-        }
-        else if (arg == "--output" && i + 1 < argc) {
-            outputVideo = argv[++i];
-        }
-        else {
-            std::cerr << "Unknown or incomplete argument: " << arg << "\n";
-            printUsage(argv[0]);
-            return 1;
-        }
+    if (argc != 1 && argc != 2) {
+        printUsage(argv[0]);
+        return 1;
     }
+
+    // Load config
+    Config config;
+    const std::string configPath = argc == 2 ? argv[1] : "guardian_config.json";
+    try {
+        config = Config::loadConfig(configPath);
+    } catch (const std::exception& e) {
+        std::cerr << "Failed to load config: " << e.what() << std::endl;
+        return 1;
+    }
+
+    const bool verbose = config.verbose();
+
+    std::string mode = config.mode();
     if (mode != "display" && mode != "save") {
-        std::cerr << "Error: --mode must be either \"display\" or \"save\".\n";
-        printUsage(argv[0]);
+        std::cerr << "Error: mode must be either \"display\" or \"save\".\n";
         return 1;
     }
-    if (mode == "save" && outputVideo.empty()) {
-        std::cerr << "Error: --output <filename> is required when --mode save.\n";
-        printUsage(argv[0]);
-        return 1;
-    }
-    // -------------------------------
-    // 2) Open the camera (VideoCapture)
-    // -------------------------------
+
+    // Open camera
     cv::VideoCapture cap(0, cv::CAP_V4L2);
     if (!cap.isOpened()) {
-        std::cerr << "ERROR: Cannot open camera (index 0).\n";
+        std::cerr << "ERROR: Cannot open camera.\n";
         return 1;
     }
-    // Try to set it to 15 FPS (some backends ignore this)
-    cap.set(cv::CAP_PROP_FPS, 15.0);
 
-    // Grab one frame to determine width & height
+    cap.set(cv::CAP_PROP_FPS, config.fpsLimit());
+
     cv::Mat rawFrame;
     cap >> rawFrame;
     if (rawFrame.empty()) {
         std::cerr << "ERROR: Could not grab initial frame.\n";
         return 1;
     }
+
     int frameW = rawFrame.cols;
     int frameH = rawFrame.rows;
     double actualFps = cap.get(cv::CAP_PROP_FPS);
-    if (actualFps <= 0.0) actualFps = 15.0;
+    if (actualFps <= 0.0) actualFps = config.fpsLimit();
+    
     std::cout << "Camera opened at ~" << actualFps << " FPS, "
               << "resolution " << frameW << "×" << frameH << ".\n";
 
-    // -------------------------------------
-    // 3) If saving, open a VideoWriter now
-    // -------------------------------------
+    // VideoWriter setup
     cv::VideoWriter writer;
     if (mode == "save") {
         int fourcc = cv::VideoWriter::fourcc('M','J','P','G');
-        bool ok = writer.open(outputVideo, fourcc, actualFps, cv::Size(frameW, frameH));
-        if (!ok) {
-            std::cerr << "ERROR: Could not open VideoWriter for \"" << outputVideo << "\".\n";
+        if (!writer.open(config.outputPath(), fourcc, actualFps, cv::Size(frameW, frameH))) {
+            std::cerr << "ERROR: Could not open output video: " << config.outputPath() << "\n";
             return 1;
         }
-        std::cout << "Writing processed video to \"" << outputVideo << "\" at " 
-                  << actualFps << " FPS.\n";
-    }
-    else {
+        std::cout << "Saving video to " << config.outputPath() << "\n";
+    } else {
         cv::namedWindow("Processed", cv::WINDOW_AUTOSIZE);
-        std::cout << "Displaying processed frames in window \"Processed\".\n";
+        std::cout << "Displaying processed frames.\n";
     }
 
-    // Hard‐coded paths for intermediate images
     const std::string inputImagePath  = "/tmp/input.png";
     const std::string outputImagePath = "/tmp/output.png";
 
-    // To keep ~15 FPS even if processing is fast
-    const double targetFps = 15.0;
-    const auto frameInterval = std::chrono::milliseconds(
-        static_cast<int>(1000.0 / targetFps + 0.5)
+    auto frameInterval = std::chrono::milliseconds(
+        static_cast<int>(1000.0 / config.fpsLimit() + 0.5)
     );
     auto lastTime = std::chrono::steady_clock::now();
 
     // Load model
-    // std::string modelPath = "yolov8n.onnx";
-    std::string modelPath = "best.onnx";
-    cv::dnn::Net net = cv::dnn::readNetFromONNX(modelPath);
-
+    cv::dnn::Net net = cv::dnn::readNetFromONNX(config.modelPath());
     if (net.empty()) {
-        std::cerr << "Couldn't load net." << std::endl;
+        std::cerr << "Couldn't load net from: " << config.modelPath() << std::endl;
         return -1;
     }
 
     // Load class names
-    std::string classFilePath = "class_names.txt";
-    std::vector<std::string> classNames = loadClassNames(classFilePath);
+    std::vector<std::string> classNames = loadClassNames(config.classNamesPath());
     if (classNames.empty()) {
-        std::cerr << "Failed to load class names from: " << classFilePath << std::endl;
+        std::cerr << "Failed to load class names from: " << config.classNamesPath() << std::endl;
         return -1;
     }
-    std::cout << "Loaded " << classNames.size() << " class names" << std::endl;
 
-    // Main loop
-    std::cout << "Starting main loop. Press 'q' in display mode to quit.\n";
+    if (verbose) std::cout << "Loaded " << classNames.size() << " class names\n";
+
     size_t iteration = 0;
+    std::cout << "Starting main loop. Press 'q' to quit.\n";
+
     while (true) {
-        // 4a) Grab a raw frame
         cap >> rawFrame;
         if (rawFrame.empty()) {
-            std::cerr << "WARNING: Empty frame grabbed; exiting loop.\n";
+            std::cerr << "WARNING: Empty frame.\n";
             break;
         }
 
-        // 4b) Throttle to ~15 FPS
         auto now = std::chrono::steady_clock::now();
         auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - lastTime);
         if (elapsed < frameInterval) {
@@ -165,47 +133,37 @@ int main(int argc, char* argv[]) {
         }
         lastTime = std::chrono::steady_clock::now();
 
-        // 4c) Write raw frame to disk
         if (!cv::imwrite(inputImagePath, rawFrame)) {
-            std::cerr << "ERROR: Failed to write \"" << inputImagePath << "\".\n";
+            std::cerr << "ERROR: Couldn't write input image.\n";
             break;
         }
 
-        // Run detection for specified image
         auto start = std::chrono::high_resolution_clock::now();
-        runSingleImageProcessing(inputImagePath, outputImagePath, net, classNames, false);
+        runSingleImageProcessing(inputImagePath, outputImagePath, net, classNames, verbose);
         auto end = std::chrono::high_resolution_clock::now();
-        if (iteration % 100 == 0) {
-            auto timeTaken = end - start;
-            auto timeMs = std::chrono::duration_cast<std::chrono::milliseconds>(timeTaken).count();
-            std::cout << "Time for single image processing: " << timeMs << "ms" << std::endl;
+
+        if (verbose && iteration % 100 == 0) {
+            auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+            std::cout << "Single frame processing time: " << ms << " ms\n";
         }
 
-        // 4e) Read the processed frame
         cv::Mat procFrame = cv::imread(outputImagePath, cv::IMREAD_COLOR);
         if (procFrame.empty()) {
-            std::cerr << "ERROR: Could not read \"" << outputImagePath << "\".\n";
+            std::cerr << "ERROR: Couldn't read output image.\n";
             break;
         }
 
-        // 4f) Display or write
         if (mode == "display") {
             cv::imshow("Processed", procFrame);
             int key = cv::waitKey(1);
-            if (key == 'q' || key == 27) {  // 'q' or ESC to quit
-                std::cout << "Quit key pressed. Exiting loop.\n";
-                break;
-            }
-        }
-        else { // save
+            if (key == 'q' || key == 27) break;
+        } else {
             writer.write(procFrame);
         }
+
         iteration++;
     }
 
-    // ------------------------------------
-    // 5) Cleanup
-    // ------------------------------------
     if (mode == "display") {
         cv::destroyWindow("Processed");
     }
@@ -213,6 +171,7 @@ int main(int argc, char* argv[]) {
     if (mode == "save") {
         writer.release();
     }
+
     std::cout << "Finished.\n";
     return 0;
 }

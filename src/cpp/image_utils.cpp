@@ -1,5 +1,10 @@
 #include "image_utils.h"
 
+#include <iostream>
+#include <fstream>
+
+#include "file_utils.h"
+
 
 bool downscaleImage(const cv::Mat& input, cv::Mat& output, const cv::Size& targetSize) {
     if (input.empty()) {

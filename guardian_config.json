@@ -1,0 +1,8 @@
+{
+    "verbose": false,
+    "modelPath": "model_data/yolov8n.onnx",
+    "classNamesPath": "model_data/class_names_general.txt",
+    "mode": "display",
+    "outputPath": "library_test.avi",
+    "fpsLimit": 15
+}
