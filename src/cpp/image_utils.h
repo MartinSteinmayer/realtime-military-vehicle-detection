@@ -1,9 +1,7 @@
-#include <iostream>
-#include <string>
-#include <fstream>
-#include <opencv2/opencv.hpp>
+#pragma once
 
-#include "file_utils.h"
+#include <string>
+#include <opencv2/opencv.hpp>
 
 const int INPUT_WIDTH = 320;
 const int INPUT_HEIGHT = 320;
